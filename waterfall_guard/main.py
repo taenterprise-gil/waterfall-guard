@@ -1,16 +1,22 @@
-"""End-to-end simulation: raw Epic claim data -> de-identification -> the
-Rule-vs-Waterfall Reconciliation Engine -> a deadlock diagnosis payload.
+"""End-to-end simulation: Epic ingestion -> de-identification -> the
+Rule-vs-Waterfall Reconciliation Engine -> an LLM-generated deadlock
+diagnosis.
 
-The `RAW_CLAIMS` and `RULES_CONFIG` below stand in for a real Epic Clarity
-extract and a hospital's rule configuration until `EpicClient.fetch_claims`
-(see `integrations/epic_client.py`) is wired up to a live instance.
+`EpicClient.fetch_claims` (see `integrations/epic_client.py`) currently
+returns mock Clarity/Caboodle data standing in for a live Epic sandbox.
+`_offline_demo_transport` below stands in for a real ZDR-compliant LLM
+call so `python -m waterfall_guard.main` runs end-to-end with no network
+access or API credentials; swap in a real transport (see `llm/client.py`)
+once the hospital's LLM contract is wired up.
 """
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from waterfall_guard.deident import Deidentifier
 from waterfall_guard.engine import HospitalRuleSet, ReconciliationEngine
+from waterfall_guard.integrations.epic_client import EpicClient
+from waterfall_guard.llm.client import DiagnosticLLMClient, ZDRConfig
 
 # A hospital's custom rules: hold conditions that can block a claim from
 # exiting its stage, and the secondary WQ gates a claim must clear.
@@ -60,67 +66,14 @@ RULES_CONFIG: Dict[str, Any] = {
     ],
 }
 
-# Raw Epic Clarity-style extract: PAT_ENC_CSN_ID, patient demographics,
-# account balances, and WQ IDs, exactly as they'd come off the source system.
-RAW_CLAIMS: List[Dict[str, Any]] = [
-    # (1) No exit condition: held on COB with no WQ able to resolve it.
-    {
-        "PAT_ENC_CSN_ID": "1002345678",
-        "PAT_ID": "P-99183",
-        "PAT_NAME": "Doe, Jane",
-        "BIRTH_DATE": "1980-04-12",
-        "ACCOUNT_BALANCE": 482.13,
-        "WATERFALL_STAGE": "follow_up",
-        "CURRENT_WQ_ID": "WQ-317",
-        "ELIGIBLE_WQ_IDS": ["WQ-317"],
-        "HOLD_REASON": "cob_pending",
-        "DAYS_IN_STAGE": 9,
-    },
-    # (2) Ambiguous routing: qualifies for two follow-up WQs, both unowned.
-    {
-        "PAT_ENC_CSN_ID": "1002345679",
-        "PAT_ID": "P-88214",
-        "PAT_NAME": "Smith, John",
-        "BIRTH_DATE": "1975-11-02",
-        "ACCOUNT_BALANCE": 1210.55,
-        "WATERFALL_STAGE": "follow_up",
-        "CURRENT_WQ_ID": "WQ-204",
-        "ELIGIBLE_WQ_IDS": ["WQ-204", "WQ-317"],
-        "HOLD_REASON": None,
-        "DAYS_IN_STAGE": 4,
-    },
-    # (3) No escalation owner: stalled well past threshold in a queue with
-    #     nobody accountable for escalation.
-    {
-        "PAT_ENC_CSN_ID": "1002345680",
-        "PAT_ID": "P-77031",
-        "PAT_NAME": "Nguyen, Trang",
-        "BIRTH_DATE": "1990-01-22",
-        "ACCOUNT_BALANCE": 305.00,
-        "WATERFALL_STAGE": "follow_up",
-        "CURRENT_WQ_ID": "WQ-204",
-        "ELIGIBLE_WQ_IDS": ["WQ-204"],
-        "HOLD_REASON": None,
-        "DAYS_IN_STAGE": 21,
-    },
-    # (4) Healthy claim: held on a fixable edit with a clear, owned WQ path.
-    {
-        "PAT_ENC_CSN_ID": "1002345681",
-        "PAT_ID": "P-66120",
-        "PAT_NAME": "Alvarez, Maria",
-        "BIRTH_DATE": "1965-06-30",
-        "ACCOUNT_BALANCE": 87.40,
-        "WATERFALL_STAGE": "claim_edit",
-        "CURRENT_WQ_ID": "WQ-EDIT-CORRECT",
-        "ELIGIBLE_WQ_IDS": ["WQ-EDIT-CORRECT"],
-        "HOLD_REASON": "missing_modifier",
-        "DAYS_IN_STAGE": 2,
-    },
-]
+# Raw Epic Clarity-style extract, sourced via the mock ingestion layer
+# (Clarity join + Caboodle drift check + FHIR Task polling).
+RAW_CLAIMS: List[Dict[str, Any]] = EpicClient().fetch_claims()
 
 
 def run_simulation() -> Dict[str, Any]:
-    """Run the full pipeline and return the ZDR-safe deadlock diagnosis payload."""
+    """Run ingestion -> de-identification -> the engine and return the
+    ZDR-safe deadlock diagnosis payload."""
     deidentifier = Deidentifier()
     rules = HospitalRuleSet.from_config(RULES_CONFIG)
     engine = ReconciliationEngine(rules)
@@ -132,9 +85,61 @@ def run_simulation() -> Dict[str, Any]:
     return engine.build_zdr_payload(findings)
 
 
-def run() -> None:
+def _offline_demo_transport(prompt: Dict[str, str], zdr_config: ZDRConfig) -> str:
+    """Deterministic stand-in for a real LLM call, used only by `run()`.
+
+    Lets the CLI demo run end-to-end without network access or API
+    credentials. Production code should construct `DiagnosticLLMClient`
+    with a real transport instead of relying on this default.
+    """
+    payload = json.loads(prompt["user"])
+    diagnoses = []
+
+    for finding in payload["findings"]:
+        deadlock_types = finding["deadlock_types"]
+        if "no_exit_condition" in deadlock_types:
+            root_cause = "An active hold has no work queue configured to resolve it."
+            routing_fix = "Add a resolving WQ gate for this hold condition, or route to manual review."
+            owner = "revenue_cycle_supervisor"
+        elif "ambiguous_wq_routing" in deadlock_types:
+            wq_list = ", ".join(finding["eligible_wq_ids"]) or "the eligible WQs"
+            root_cause = "The claim qualifies for multiple work queues, none of which are owned."
+            routing_fix = f"Assign an owner to one of: {wq_list}."
+            owner = "wq_admin"
+        else:
+            root_cause = "The claim is stalled in a work queue with no escalation path defined."
+            stuck_wq = finding["unassigned_wq_ids"][0] if finding["unassigned_wq_ids"] else "the current WQ"
+            routing_fix = f"Define an escalation owner for {stuck_wq}."
+            owner = "followup_supervisor"
+
+        diagnoses.append(
+            {
+                "token_id": finding["token_id"],
+                "root_cause": root_cause,
+                "routing_fix": routing_fix,
+                "recommended_owner": owner,
+            }
+        )
+
+    return json.dumps(diagnoses)
+
+
+def run_diagnostic_pipeline(llm_client: Optional[DiagnosticLLMClient] = None) -> Dict[str, Any]:
+    """Runs the full pipeline: Epic ingestion -> deident -> engine -> LLM diagnosis."""
     payload = run_simulation()
-    print(json.dumps(payload, indent=2))
+    client = llm_client or DiagnosticLLMClient(transport=_offline_demo_transport)
+    result = client.diagnose(payload)
+
+    return {
+        "diagnostic_payload": payload,
+        "llm_ok": result.ok,
+        "llm_error": result.error,
+        "diagnosis": result.parsed,
+    }
+
+
+def run() -> None:
+    print(json.dumps(run_diagnostic_pipeline(), indent=2))
 
 
 if __name__ == "__main__":
