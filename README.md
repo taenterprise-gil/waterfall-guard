@@ -37,17 +37,20 @@ Follow-up -> Account -> Credit/Adjustment). The pipeline:
    `deident.py` -> `engine.py` -> `llm/client.py` -> a routing-fix diagnosis.
    Run it with `python -m waterfall_guard.main` to see a worked simulation
    (using an offline demo transport in place of a real LLM call).
-6. **`scripts/*.sql`** and **`api/dashboard_router.py`** (Phase 2) define a
-   Supabase schema for de-identified findings/diagnoses and serve them
-   back as executive-reporting metrics. `01_create_diagnostic_tables.sql`
-   creates the base `pipeline_runs`/`deadlock_diagnostics` tables
-   (token_id + rule metadata only, no PHI); `02_create_dashboard_views.sql`
-   aggregates them into `vw_executive_metrics`, `vw_deadlock_breakdown`,
-   and `vw_workqueue_routing`. `api/dashboard_router.py` (FastAPI) exposes
-   those views, and only those views, as
+6. **`scripts/*.sql`**, **`integrations/supabase_writer.py`**, and
+   **`api/dashboard_router.py`** (Phase 2) persist de-identified
+   findings/diagnoses to Supabase and serve them back as
+   executive-reporting metrics. `01_create_diagnostic_tables.sql` creates
+   the base `pipeline_runs`/`deadlock_diagnostics` tables (token_id + rule
+   metadata only, no PHI); `02_create_dashboard_views.sql` aggregates them
+   into `vw_executive_metrics`, `vw_deadlock_breakdown`, and
+   `vw_workqueue_routing`. `main.py`'s `run_diagnostic_pipeline` writes
+   each run's counts and findings via `SupabaseWriter` (fails soft into a
+   `persisted`/`persist_error` result if Supabase is unreachable or
+   unconfigured, same as the LLM call). `api/dashboard_router.py`
+   (FastAPI) exposes the views, and only the views, as
    `/api/v1/dashboard/{summary,deadlocks,workqueues}`. Run it with
-   `uvicorn waterfall_guard.api.app:app`. Still to wire up: a writer that
-   persists `main.py`'s pipeline output into these tables (see Status).
+   `uvicorn waterfall_guard.api.app:app`.
 
 ## Project layout
 
@@ -79,10 +82,11 @@ python -m waterfall_guard.main
 `deident.py`, `engine.py`, `integrations/epic_client.py`, and `llm/client.py`
 implement the full pipeline against mock Clarity/Caboodle data in
 `epic_client.py` and an offline demo transport in `main.py`. The Phase 2
-Supabase schema (`scripts/*.sql`) and reporting API (`api/dashboard_router.py`)
-are in place and tested against a fake Supabase client. Still to wire up for
-production: real Epic FHIR/Clarity/Caboodle credentials in `epic_client.py`,
-a real ZDR-compliant LLM transport in place of `main.py`'s
-`_offline_demo_transport`, and a writer that persists each pipeline run's
-findings/diagnoses into the `pipeline_runs`/`deadlock_diagnostics` tables so
-the dashboard views have real data to aggregate.
+Supabase schema (`scripts/*.sql`), writer (`integrations/supabase_writer.py`),
+and reporting API (`api/dashboard_router.py`) are in place and tested against
+fake Supabase clients/transports - no live project required to run the suite.
+Still to wire up for production: real Epic FHIR/Clarity/Caboodle credentials
+in `epic_client.py`, a real ZDR-compliant LLM transport in place of
+`main.py`'s `_offline_demo_transport`, and a real Supabase project (the
+`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` env vars) for the writer and
+dashboard API to read/write against.

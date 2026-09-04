@@ -16,6 +16,11 @@ from typing import Any, Dict, List, Optional
 from waterfall_guard.deident import Deidentifier
 from waterfall_guard.engine import HospitalRuleSet, ReconciliationEngine
 from waterfall_guard.integrations.epic_client import EpicClient
+from waterfall_guard.integrations.supabase_writer import (
+    SupabaseWriteError,
+    SupabaseWriter,
+    build_diagnostic_rows,
+)
 from waterfall_guard.llm.client import DiagnosticLLMClient, ZDRConfig
 
 # A hospital's custom rules: hold conditions that can block a claim from
@@ -87,9 +92,17 @@ SAMPLE_COB_DIAGNOSIS: Dict[str, str] = {
 }
 
 
-def run_simulation() -> Dict[str, Any]:
-    """Run ingestion -> de-identification -> the engine and return the
-    ZDR-safe deadlock diagnosis payload."""
+def _run_simulation() -> tuple[Dict[str, Any], Dict[str, float]]:
+    """Runs ingestion -> de-identification -> the engine once, returning
+    both the ZDR-safe deadlock diagnosis payload and a token_id -> account
+    balance map.
+
+    Both come from the same `deidentify_batch` call so their token_ids
+    line up - `Deidentifier()` seeds a fresh random HMAC key per instance,
+    so a second, separate de-identification pass would mint different
+    tokens for the same claims and silently break the dollar-amount
+    lookup used when persisting to Supabase.
+    """
     deidentifier = Deidentifier()
     rules = HospitalRuleSet.from_config(RULES_CONFIG)
     engine = ReconciliationEngine(rules)
@@ -98,7 +111,19 @@ def run_simulation() -> Dict[str, Any]:
     engine_records = [record.as_dict() for record in deidentified_records]
 
     findings = engine.diagnose_batch(engine_records)
-    return engine.build_zdr_payload(findings)
+    payload = engine.build_zdr_payload(findings)
+
+    dollar_amounts_by_token = {
+        record["token_id"]: record.get("account_balance") or 0 for record in engine_records
+    }
+    return payload, dollar_amounts_by_token
+
+
+def run_simulation() -> Dict[str, Any]:
+    """Run ingestion -> de-identification -> the engine and return the
+    ZDR-safe deadlock diagnosis payload."""
+    payload, _ = _run_simulation()
+    return payload
 
 
 def _offline_demo_transport(prompt: Dict[str, str], zdr_config: ZDRConfig) -> str:
@@ -145,17 +170,46 @@ def _offline_demo_transport(prompt: Dict[str, str], zdr_config: ZDRConfig) -> st
     return json.dumps(diagnoses)
 
 
-def run_diagnostic_pipeline(llm_client: Optional[DiagnosticLLMClient] = None) -> Dict[str, Any]:
-    """Runs the full pipeline: Epic ingestion -> deident -> engine -> LLM diagnosis."""
-    payload = run_simulation()
+def run_diagnostic_pipeline(
+    llm_client: Optional[DiagnosticLLMClient] = None,
+    supabase_writer: Optional[SupabaseWriter] = None,
+    persist: bool = True,
+) -> Dict[str, Any]:
+    """Runs the full pipeline: Epic ingestion -> deident -> engine -> LLM
+    diagnosis -> Supabase (pipeline_runs/deadlock_diagnostics).
+
+    Persistence never blocks or fails the pipeline: a misconfigured or
+    unreachable Supabase project comes back as `persisted=False` plus a
+    `persist_error` message, the same fail-soft contract
+    `DiagnosticLLMClient` already uses for the LLM call. Pass
+    `persist=False` to skip writing to Supabase entirely (e.g. in tests).
+    """
+    payload, dollar_amounts_by_token = _run_simulation()
     client = llm_client or DiagnosticLLMClient(transport=_offline_demo_transport)
     result = client.diagnose(payload)
+    diagnoses = result.parsed if isinstance(result.parsed, list) else []
+
+    persisted = False
+    persist_error: Optional[str] = None
+    if persist:
+        writer = supabase_writer or SupabaseWriter()
+        try:
+            writer.record_pipeline_run(
+                claims_analyzed=len(RAW_CLAIMS),
+                deadlocks_found=payload["finding_count"],
+            )
+            writer.record_diagnoses(build_diagnostic_rows(payload, diagnoses, dollar_amounts_by_token))
+            persisted = True
+        except SupabaseWriteError as exc:
+            persist_error = str(exc)
 
     return {
         "diagnostic_payload": payload,
         "llm_ok": result.ok,
         "llm_error": result.error,
         "diagnosis": result.parsed,
+        "persisted": persisted,
+        "persist_error": persist_error,
     }
 
 

@@ -1,6 +1,7 @@
 import json
 
-from waterfall_guard.main import RAW_CLAIMS, run_simulation
+from waterfall_guard.integrations.supabase_writer import SupabaseWriteError, SupabaseWriter
+from waterfall_guard.main import RAW_CLAIMS, run_diagnostic_pipeline, run_simulation
 
 PHI_VALUES = [
     "Doe, Jane",
@@ -46,3 +47,66 @@ def test_run_simulation_payload_contains_no_phi():
     raw_serialized = json.dumps(RAW_CLAIMS)
     for phi_value in PHI_VALUES:
         assert phi_value in raw_serialized
+
+
+def test_run_diagnostic_pipeline_persists_the_run_and_its_diagnoses():
+    recorded_runs = []
+    recorded_rows = []
+
+    class RecordingWriter(SupabaseWriter):
+        def __init__(self):
+            pass
+
+        def record_pipeline_run(self, claims_analyzed, deadlocks_found):
+            recorded_runs.append((claims_analyzed, deadlocks_found))
+
+        def record_diagnoses(self, rows):
+            recorded_rows.extend(rows)
+
+    result = run_diagnostic_pipeline(supabase_writer=RecordingWriter())
+
+    assert result["persisted"] is True
+    assert result["persist_error"] is None
+    assert recorded_runs == [(len(RAW_CLAIMS), result["diagnostic_payload"]["finding_count"])]
+
+    # Every finding's token_id got a persisted row, and the dollar amount
+    # is a real balance from RAW_CLAIMS - not zero/missing - proving the
+    # writer used the same de-identification pass as the findings
+    # themselves rather than re-tokenizing (which would mint fresh,
+    # mismatched tokens).
+    finding_tokens = {f["token_id"] for f in result["diagnostic_payload"]["findings"]}
+    row_tokens = {row["token_id"] for row in recorded_rows}
+    assert row_tokens == finding_tokens
+    assert all(row["dollar_amount_at_risk"] > 0 for row in recorded_rows)
+
+
+def test_run_diagnostic_pipeline_skips_persistence_when_persist_is_false():
+    class ExplodingWriter(SupabaseWriter):
+        def __init__(self):
+            pass
+
+        def record_pipeline_run(self, claims_analyzed, deadlocks_found):
+            raise AssertionError("writer should not be used when persist=False")
+
+    result = run_diagnostic_pipeline(supabase_writer=ExplodingWriter(), persist=False)
+
+    assert result["persisted"] is False
+    assert result["persist_error"] is None
+
+
+def test_run_diagnostic_pipeline_degrades_gracefully_when_supabase_is_unreachable():
+    class FailingWriter(SupabaseWriter):
+        def __init__(self):
+            pass
+
+        def record_pipeline_run(self, claims_analyzed, deadlocks_found):
+            raise SupabaseWriteError("Supabase is unreachable")
+
+        def record_diagnoses(self, rows):
+            raise AssertionError("should not be reached after record_pipeline_run fails")
+
+    result = run_diagnostic_pipeline(supabase_writer=FailingWriter())
+
+    assert result["llm_ok"] is True
+    assert result["persisted"] is False
+    assert "unreachable" in result["persist_error"]
