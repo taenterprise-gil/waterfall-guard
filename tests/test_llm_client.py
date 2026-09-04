@@ -126,3 +126,32 @@ def test_diagnose_handles_a_non_json_response_without_crashing():
     assert result.ok
     assert result.parsed is None
     assert result.raw_text.startswith("Sorry")
+
+
+SAMPLE_COB_DIAGNOSIS = {
+    "token_id": "claim_hash_demo_123",
+    "root_cause": (
+        "Primary payment posted at claim level instead of line-item level, "
+        "causing Loop 2320 AMT*EAF validation failure."
+    ),
+    "routing_fix": "Map primary 835 COB line-item liability to Resolute COB screen Loop 2320.",
+    "recommended_owner": "Claim Edit WQ - COB Specialist",
+}
+
+
+def test_diagnose_parses_full_cob_diagnosis_schema():
+    def cob_transport(prompt, zdr_config):
+        return json.dumps([SAMPLE_COB_DIAGNOSIS])
+
+    client = DiagnosticLLMClient(transport=cob_transport)
+    result = client.diagnose(SAMPLE_PAYLOAD)
+
+    assert result.ok
+    assert result.error is None
+    assert result.parsed == [SAMPLE_COB_DIAGNOSIS]
+
+    diagnosis = result.parsed[0]
+    for key in ("token_id", "root_cause", "routing_fix", "recommended_owner"):
+        assert key in diagnosis
+    assert diagnosis["token_id"] == "claim_hash_demo_123"
+    assert diagnosis["recommended_owner"] == "Claim Edit WQ - COB Specialist"

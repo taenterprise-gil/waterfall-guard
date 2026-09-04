@@ -70,6 +70,22 @@ RULES_CONFIG: Dict[str, Any] = {
 # (Clarity join + Caboodle drift check + FHIR Task polling).
 RAW_CLAIMS: List[Dict[str, Any]] = EpicClient().fetch_claims()
 
+# Canonical example diagnosis for the "coordination_of_benefits_pending"
+# hold above: an 835 COB liability posted at the claim level instead of
+# the line-item level, failing Loop 2320 AMT*EAF validation on Resolute's
+# COB screen. Matches the exact schema `DiagnosticLLMClient` expects back
+# from the LLM (token_id, root_cause, routing_fix, recommended_owner), so
+# it doubles as a fixture for local testing of that schema.
+SAMPLE_COB_DIAGNOSIS: Dict[str, str] = {
+    "token_id": "claim_hash_demo_123",
+    "root_cause": (
+        "Primary payment posted at claim level instead of line-item level, "
+        "causing Loop 2320 AMT*EAF validation failure."
+    ),
+    "routing_fix": "Map primary 835 COB line-item liability to Resolute COB screen Loop 2320.",
+    "recommended_owner": "Claim Edit WQ - COB Specialist",
+}
+
 
 def run_simulation() -> Dict[str, Any]:
     """Run ingestion -> de-identification -> the engine and return the
@@ -98,9 +114,14 @@ def _offline_demo_transport(prompt: Dict[str, str], zdr_config: ZDRConfig) -> st
     for finding in payload["findings"]:
         deadlock_types = finding["deadlock_types"]
         if "no_exit_condition" in deadlock_types:
-            root_cause = "An active hold has no work queue configured to resolve it."
-            routing_fix = "Add a resolving WQ gate for this hold condition, or route to manual review."
-            owner = "revenue_cycle_supervisor"
+            if "coordination_of_benefits_pending" in finding["active_hold_names"]:
+                root_cause = SAMPLE_COB_DIAGNOSIS["root_cause"]
+                routing_fix = SAMPLE_COB_DIAGNOSIS["routing_fix"]
+                owner = SAMPLE_COB_DIAGNOSIS["recommended_owner"]
+            else:
+                root_cause = "An active hold has no work queue configured to resolve it."
+                routing_fix = "Add a resolving WQ gate for this hold condition, or route to manual review."
+                owner = "revenue_cycle_supervisor"
         elif "ambiguous_wq_routing" in deadlock_types:
             wq_list = ", ".join(finding["eligible_wq_ids"]) or "the eligible WQs"
             root_cause = "The claim qualifies for multiple work queues, none of which are owned."
