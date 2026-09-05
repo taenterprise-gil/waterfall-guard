@@ -1,6 +1,7 @@
 import json
 
-from waterfall_guard.main import RAW_CLAIMS, run_simulation
+from waterfall_guard.integrations.supabase_writer import SupabaseWriter
+from waterfall_guard.main import RAW_CLAIMS, run_diagnostic_pipeline, run_simulation
 
 PHI_VALUES = [
     "Doe, Jane",
@@ -46,3 +47,36 @@ def test_run_simulation_payload_contains_no_phi():
     raw_serialized = json.dumps(RAW_CLAIMS)
     for phi_value in PHI_VALUES:
         assert phi_value in raw_serialized
+
+
+def test_run_diagnostic_pipeline_soft_fails_when_supabase_is_unconfigured():
+    # No SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY in this environment, so the
+    # default writer is disabled - the pipeline must still complete and
+    # report the failure rather than raising.
+    result = run_diagnostic_pipeline(supabase_writer=SupabaseWriter(url="", key=""))
+
+    assert result["llm_ok"] is True
+    assert result["supabase_write_ok"] is False
+    assert result["supabase_write_error"]
+
+
+def test_run_diagnostic_pipeline_persists_findings_when_supabase_is_configured():
+    written_rows = []
+
+    class FakeTable:
+        def insert(self, rows):
+            written_rows.extend(rows)
+            return self
+
+        def execute(self):
+            return {"data": written_rows}
+
+    class FakeClient:
+        def table(self, name):
+            return FakeTable()
+
+    writer = SupabaseWriter(url="https://proj.supabase.co", key="secret", client=FakeClient())
+    result = run_diagnostic_pipeline(supabase_writer=writer)
+
+    assert result["supabase_write_ok"] is True
+    assert len(written_rows) == result["diagnostic_payload"]["finding_count"]

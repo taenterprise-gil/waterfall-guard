@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from waterfall_guard.deident import Deidentifier
 from waterfall_guard.engine import HospitalRuleSet, ReconciliationEngine
 from waterfall_guard.integrations.epic_client import EpicClient
+from waterfall_guard.integrations.supabase_writer import SupabaseWriter
 from waterfall_guard.llm.client import DiagnosticLLMClient, ZDRConfig
 
 # A hospital's custom rules: hold conditions that can block a claim from
@@ -124,17 +125,33 @@ def _offline_demo_transport(prompt: Dict[str, str], zdr_config: ZDRConfig) -> st
     return json.dumps(diagnoses)
 
 
-def run_diagnostic_pipeline(llm_client: Optional[DiagnosticLLMClient] = None) -> Dict[str, Any]:
-    """Runs the full pipeline: Epic ingestion -> deident -> engine -> LLM diagnosis."""
+def run_diagnostic_pipeline(
+    llm_client: Optional[DiagnosticLLMClient] = None,
+    supabase_writer: Optional[SupabaseWriter] = None,
+) -> Dict[str, Any]:
+    """Runs the full pipeline: Epic ingestion -> deident -> engine -> LLM
+    diagnosis -> (optional) Supabase persistence of the de-identified
+    diagnostic payload.
+
+    Supabase persistence is best-effort: `SupabaseWriter` soft-fails (never
+    raises) whenever credentials are absent or the project is unreachable,
+    so the pipeline runs to completion identically whether or not Supabase
+    is configured - its outcome is only reflected in the returned dict.
+    """
     payload = run_simulation()
     client = llm_client or DiagnosticLLMClient(transport=_offline_demo_transport)
     result = client.diagnose(payload)
+
+    writer = supabase_writer if supabase_writer is not None else SupabaseWriter()
+    write_result = writer.write_diagnostic_payload(payload)
 
     return {
         "diagnostic_payload": payload,
         "llm_ok": result.ok,
         "llm_error": result.error,
         "diagnosis": result.parsed,
+        "supabase_write_ok": write_result.ok,
+        "supabase_write_error": write_result.error,
     }
 
 
