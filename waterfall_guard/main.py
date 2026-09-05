@@ -10,14 +10,35 @@ access or API credentials; swap in a real transport (see `llm/client.py`)
 once the hospital's LLM contract is wired up.
 """
 
+import argparse
 import json
+import sys
 from typing import Any, Dict, List, Optional
 
+from waterfall_guard.config.settings import settings
 from waterfall_guard.deident import Deidentifier
 from waterfall_guard.engine import HospitalRuleSet, ReconciliationEngine
 from waterfall_guard.integrations.epic_client import EpicClient
 from waterfall_guard.integrations.supabase_writer import SupabaseWriter
 from waterfall_guard.llm.client import DiagnosticLLMClient, ZDRConfig
+
+# Env vars a --live run refuses to start without. Checked against `settings`
+# rather than os.environ directly so a .env file is honored the same way
+# settings.py already loads it.
+_REQUIRED_LIVE_SETTINGS = [
+    ("epic_client_id", "EPIC_CLIENT_ID"),
+    ("epic_client_secret", "EPIC_CLIENT_SECRET"),
+    ("supabase_url", "SUPABASE_URL"),
+    ("supabase_service_role_key", "SUPABASE_SERVICE_ROLE_KEY"),
+]
+
+
+def _missing_live_env_vars() -> List[str]:
+    return [
+        env_name
+        for attr, env_name in _REQUIRED_LIVE_SETTINGS
+        if not getattr(settings, attr)
+    ]
 
 # A hospital's custom rules: hold conditions that can block a claim from
 # exiting its stage, and the secondary WQ gates a claim must clear.
@@ -155,7 +176,51 @@ def run_diagnostic_pipeline(
     }
 
 
-def run() -> None:
+def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run the waterfall-guard end-to-end diagnostic pipeline.",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "Refuse to start unless EPIC_CLIENT_ID/EPIC_CLIENT_SECRET and "
+            "SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are all set. Default is "
+            "--demo, which runs with whatever env vars happen to be present."
+        ),
+    )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Run in demo mode (default). Mutually redundant with omitting --live.",
+    )
+    return parser.parse_args(argv)
+
+
+def run(argv: Optional[List[str]] = None) -> None:
+    args = _parse_args(argv)
+
+    if args.live:
+        missing = _missing_live_env_vars()
+        if missing:
+            print(
+                "REFUSING TO START IN --live MODE: missing required env var(s): "
+                + ", ".join(missing),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(
+            "MODE: --live (Epic/Supabase credentials present). NOTE: "
+            "EpicClient ingestion and the LLM transport are still mock/demo "
+            "stubs (see README 'Status') - credential presence does not yet "
+            "mean this hits real Epic or a real LLM.",
+            file=sys.stderr,
+        )
+    else:
+        missing = _missing_live_env_vars()
+        note = f" (missing: {', '.join(missing)})" if missing else ""
+        print(f"MODE: --demo (mock Epic data, offline LLM transport){note}", file=sys.stderr)
+
     print(json.dumps(run_diagnostic_pipeline(), indent=2))
 
 

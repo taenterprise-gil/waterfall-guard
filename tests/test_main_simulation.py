@@ -1,7 +1,23 @@
 import json
 
+import pytest
+
+from waterfall_guard.config.settings import settings
 from waterfall_guard.integrations.supabase_writer import SupabaseWriter
-from waterfall_guard.main import RAW_CLAIMS, run_diagnostic_pipeline, run_simulation
+from waterfall_guard.main import (
+    RAW_CLAIMS,
+    _missing_live_env_vars,
+    run,
+    run_diagnostic_pipeline,
+    run_simulation,
+)
+
+_LIVE_SETTING_ATTRS = [
+    "epic_client_id",
+    "epic_client_secret",
+    "supabase_url",
+    "supabase_service_role_key",
+]
 
 PHI_VALUES = [
     "Doe, Jane",
@@ -80,3 +96,71 @@ def test_run_diagnostic_pipeline_persists_findings_when_supabase_is_configured()
 
     assert result["supabase_write_ok"] is True
     assert len(written_rows) == result["diagnostic_payload"]["finding_count"]
+
+
+def test_missing_live_env_vars_lists_every_unset_setting(monkeypatch):
+    for attr in _LIVE_SETTING_ATTRS:
+        monkeypatch.setattr(settings, attr, "")
+
+    missing = _missing_live_env_vars()
+
+    assert missing == [
+        "EPIC_CLIENT_ID",
+        "EPIC_CLIENT_SECRET",
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY",
+    ]
+
+
+def test_missing_live_env_vars_empty_when_all_settings_present(monkeypatch):
+    for attr in _LIVE_SETTING_ATTRS:
+        monkeypatch.setattr(settings, attr, "some-value")
+
+    assert _missing_live_env_vars() == []
+
+
+def test_run_live_mode_refuses_to_start_when_credentials_are_missing(monkeypatch, capsys):
+    monkeypatch.setattr(settings, "epic_client_id", "")
+    monkeypatch.setattr(settings, "epic_client_secret", "some-value")
+    monkeypatch.setattr(settings, "supabase_url", "")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "some-value")
+
+    with pytest.raises(SystemExit) as exc_info:
+        run(["--live"])
+
+    assert exc_info.value.code == 1
+    stderr = capsys.readouterr().err
+    assert "REFUSING TO START IN --live MODE" in stderr
+    assert "EPIC_CLIENT_ID" in stderr
+    assert "SUPABASE_URL" in stderr
+    # Only the two unset vars should be reported, not the two that are set.
+    assert "EPIC_CLIENT_SECRET" not in stderr
+    assert "SUPABASE_SERVICE_ROLE_KEY" not in stderr
+
+
+def test_run_live_mode_proceeds_when_credentials_are_present(monkeypatch, capsys):
+    for attr in _LIVE_SETTING_ATTRS:
+        monkeypatch.setattr(settings, attr, "some-value")
+    monkeypatch.setattr(
+        "waterfall_guard.main.run_diagnostic_pipeline", lambda: {"ok": True}
+    )
+
+    run(["--live"])
+
+    stderr = capsys.readouterr().err
+    assert "MODE: --live" in stderr
+    assert "credentials present" in stderr
+
+
+def test_run_demo_mode_runs_regardless_of_missing_credentials(monkeypatch, capsys):
+    for attr in _LIVE_SETTING_ATTRS:
+        monkeypatch.setattr(settings, attr, "")
+    monkeypatch.setattr(
+        "waterfall_guard.main.run_diagnostic_pipeline", lambda: {"ok": True}
+    )
+
+    run(["--demo"])
+
+    stderr = capsys.readouterr().err
+    assert "MODE: --demo" in stderr
+    assert "EPIC_CLIENT_ID" in stderr
