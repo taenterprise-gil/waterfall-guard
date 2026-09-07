@@ -258,6 +258,11 @@ def load_data():
     if client is not None:
         df = fetch_claims_data(client)
         if not df.empty:
+            if "financial_impact" not in df.columns:
+                # The de-identified ZDR payload SupabaseWriter persists never
+                # includes claim dollar amounts (compliance boundary — see
+                # supabase_writer.py), so live rows have no cost data yet.
+                df["financial_impact"] = 0.0
             return df, True
     return generate_demo_data(), False
 
@@ -293,6 +298,10 @@ with st.sidebar:
 
     min_impact = float(df_raw["financial_impact"].min()) if "financial_impact" in df_raw and not df_raw.empty else 0.0
     max_impact = float(df_raw["financial_impact"].max()) if "financial_impact" in df_raw and not df_raw.empty else 1000.0
+    if max_impact <= min_impact:
+        # No cost data yet (e.g. live rows all default to $0) — slider needs
+        # a non-degenerate range even though it has nothing to filter.
+        max_impact = min_impact + 1.0
     impact_range = st.slider(
         "Financial impact ($)",
         min_value=float(np.floor(min_impact)),
@@ -429,7 +438,11 @@ col3, col4 = st.columns([1, 1])
 
 with col3:
     st.subheader("Deadlock Types")
-    deadlock_counts = df["deadlock_types"].dropna().value_counts().reset_index()
+    deadlock_series = df["deadlock_types"].dropna().apply(
+        lambda v: ", ".join(v) if isinstance(v, list) else str(v)
+    )
+    deadlock_series = deadlock_series[deadlock_series != ""]
+    deadlock_counts = deadlock_series.value_counts().reset_index()
     deadlock_counts.columns = ["deadlock_type", "count"]
     if deadlock_counts.empty:
         st.info("No deadlocked claims in the current filter selection.")
@@ -451,7 +464,11 @@ with col3:
 
 with col4:
     st.subheader("Active Hold Names")
-    hold_counts = df["active_hold_names"].dropna().value_counts().reset_index()
+    hold_series = df["active_hold_names"].dropna().apply(
+        lambda v: ", ".join(v) if isinstance(v, list) else str(v)
+    )
+    hold_series = hold_series[hold_series != ""]
+    hold_counts = hold_series.value_counts().reset_index()
     hold_counts.columns = ["hold_name", "count"]
     if hold_counts.empty:
         st.info("No active holds in the current filter selection.")
