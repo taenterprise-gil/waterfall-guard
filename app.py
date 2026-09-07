@@ -6,7 +6,7 @@ pushed from the backend pipeline into a Supabase PostgreSQL table.
 
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -268,53 +268,192 @@ def load_data():
 
 
 # ----------------------------------------------------------------------------
+# Tenant configuration / onboarding gate
+# ----------------------------------------------------------------------------
+CONFIG_TABLE_NAME = "client_configurations"
+INGESTION_MODE_LABELS = {"etl_batch": "ETL Batch", "fhir_api": "FHIR API"}
+
+
+def get_tenant_id() -> str:
+    """
+    This dashboard is deployed one instance per client organization, so the
+    tenant is fixed per-deployment rather than resolved from a login session
+    (there's no auth layer yet — client_configurations' RLS policy expects a
+    JWT `tenant_id` claim that nothing here issues).
+    """
+    return st.secrets.get("TENANT_ID", os.environ.get("TENANT_ID", "default"))
+
+
+@st.cache_resource(show_spinner=False)
+def get_config_client():
+    """
+    Service-role Supabase client used only for client_configurations. That
+    table's RLS only admits a JWT carrying a tenant_id claim, which this
+    single-tenant-per-deployment dashboard never issues, so the service role
+    bypasses RLS here instead — scoped to onboarding config, not claim data.
+    """
+    try:
+        from supabase import create_client
+
+        url = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", ""))
+        key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""))
+        if not url or not key:
+            return None
+        return create_client(url, key)
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_client_configuration(_client, tenant_id: str):
+    """This tenant's onboarding record, or None if it hasn't been created yet."""
+    if _client is None:
+        return None
+    try:
+        response = (
+            _client.table(CONFIG_TABLE_NAME)
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .maybe_single()
+            .execute()
+        )
+        return response.data
+    except Exception as exc:
+        st.session_state["config_fetch_error"] = str(exc)
+        return None
+
+
+def render_onboarding_wizard(client, tenant_id: str, existing: dict | None):
+    """Client Onboarding Wizard: collects config, upserts it as completed."""
+    st.title("Welcome to OpenClaw")
+    st.subheader("Client Onboarding")
+    st.caption(f"Configure this workspace (tenant `{tenant_id}`) to unlock the dashboard.")
+
+    if client is None:
+        st.error(
+            "SUPABASE_SERVICE_ROLE_KEY is not configured for this deployment — "
+            "onboarding can't be saved until it's set."
+        )
+        return
+
+    existing = existing or {}
+    with st.form("onboarding_wizard"):
+        organization_name = st.text_input(
+            "Hospital / Organization Name", value=existing.get("organization_name", "")
+        )
+        epic_fhir_base_url = st.text_input(
+            "Epic FHIR Base URL", value=existing.get("epic_fhir_base_url", "")
+        )
+        epic_client_id = st.text_input(
+            "Epic OAuth Client ID", value=existing.get("epic_client_id", "")
+        )
+        mode_keys = list(INGESTION_MODE_LABELS.keys())
+        ingestion_mode = st.selectbox(
+            "Ingestion Method",
+            options=mode_keys,
+            format_func=lambda k: INGESTION_MODE_LABELS[k],
+            index=mode_keys.index(existing.get("ingestion_mode", "etl_batch")),
+        )
+        dollar_threshold_default = st.number_input(
+            "Default Dollar Impact Threshold ($)",
+            min_value=0.0,
+            value=float(existing.get("dollar_threshold_default", 500.0)),
+            step=50.0,
+        )
+        submitted = st.form_submit_button("Complete Onboarding")
+
+    if not submitted:
+        return
+    if not organization_name.strip():
+        st.error("Hospital / Organization Name is required.")
+        return
+
+    payload = {
+        "tenant_id": tenant_id,
+        "organization_name": organization_name.strip(),
+        "epic_client_id": epic_client_id.strip() or None,
+        "epic_fhir_base_url": epic_fhir_base_url.strip() or None,
+        "ingestion_mode": ingestion_mode,
+        "dollar_threshold_default": dollar_threshold_default,
+        "is_onboarding_completed": True,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        client.table(CONFIG_TABLE_NAME).upsert(payload, on_conflict="tenant_id").execute()
+    except Exception as exc:
+        st.error(f"Failed to save configuration: {exc}")
+        return
+
+    st.cache_data.clear()
+    st.success("Onboarding complete — loading your dashboard…")
+    st.rerun()
+
+
+# ----------------------------------------------------------------------------
 # Sidebar — filters & connection status
 # ----------------------------------------------------------------------------
+tenant_id = get_tenant_id()
+config_client = get_config_client()
+client_config = fetch_client_configuration(config_client, tenant_id)
+onboarded = bool(client_config and client_config.get("is_onboarding_completed"))
+
 with st.sidebar:
     st.image("assets/logo.png", width=48)
     st.markdown("### OpenClaw")
     st.caption("Revenue Recovery Diagnostics")
     st.markdown("---")
 
-    df_raw, is_live = load_data()
-
-    if is_live:
-        st.markdown('<span class="status-pill status-connected">● Connected to Supabase</span>', unsafe_allow_html=True)
+    if not onboarded:
+        st.caption(f"Tenant: `{tenant_id}`")
+        st.info("Complete onboarding to unlock the dashboard.")
+        df_raw, is_live = pd.DataFrame(), False
+        selected_stages, selected_payers = [], None
+        impact_range = (0.0, 0.0)
+        only_deadlocked = False
     else:
-        st.markdown('<span class="status-pill status-demo">● Demo data mode</span>', unsafe_allow_html=True)
-        st.caption("Set SUPABASE_URL / SUPABASE_KEY in secrets to connect live.")
+        df_raw, is_live = load_data()
 
-    st.markdown("---")
-    st.markdown("#### Filters")
+        if is_live:
+            st.markdown('<span class="status-pill status-connected">● Connected to Supabase</span>', unsafe_allow_html=True)
+        else:
+            st.markdown('<span class="status-pill status-demo">● Demo data mode</span>', unsafe_allow_html=True)
+            st.caption("Set SUPABASE_URL / SUPABASE_KEY in secrets to connect live.")
 
-    stages_available = sorted(df_raw["waterfall_stage"].dropna().unique().tolist()) if "waterfall_stage" in df_raw else []
-    selected_stages = st.multiselect("Waterfall stage", stages_available, default=stages_available)
+        st.markdown("---")
+        st.markdown("#### Filters")
 
-    if "payer" in df_raw.columns:
-        payers_available = sorted(df_raw["payer"].dropna().unique().tolist())
-        selected_payers = st.multiselect("Payer", payers_available, default=payers_available)
-    else:
-        selected_payers = None
+        stages_available = sorted(df_raw["waterfall_stage"].dropna().unique().tolist()) if "waterfall_stage" in df_raw else []
+        selected_stages = st.multiselect("Waterfall stage", stages_available, default=stages_available)
 
-    min_impact = float(df_raw["financial_impact"].min()) if "financial_impact" in df_raw and not df_raw.empty else 0.0
-    max_impact = float(df_raw["financial_impact"].max()) if "financial_impact" in df_raw and not df_raw.empty else 1000.0
-    if max_impact <= min_impact:
-        # No cost data yet (e.g. live rows all default to $0) — slider needs
-        # a non-degenerate range even though it has nothing to filter.
-        max_impact = min_impact + 1.0
-    impact_range = st.slider(
-        "Financial impact ($)",
-        min_value=float(np.floor(min_impact)),
-        max_value=float(np.ceil(max_impact)),
-        value=(float(np.floor(min_impact)), float(np.ceil(max_impact))),
-    )
+        if "payer" in df_raw.columns:
+            payers_available = sorted(df_raw["payer"].dropna().unique().tolist())
+            selected_payers = st.multiselect("Payer", payers_available, default=payers_available)
+        else:
+            selected_payers = None
 
-    only_deadlocked = st.checkbox("Only show deadlocked claims", value=False)
+        min_impact = float(df_raw["financial_impact"].min()) if "financial_impact" in df_raw and not df_raw.empty else 0.0
+        max_impact = float(df_raw["financial_impact"].max()) if "financial_impact" in df_raw and not df_raw.empty else 1000.0
+        if max_impact <= min_impact:
+            # No cost data yet (e.g. live rows all default to $0) — slider needs
+            # a non-degenerate range even though it has nothing to filter.
+            max_impact = min_impact + 1.0
+        impact_range = st.slider(
+            "Financial impact ($)",
+            min_value=float(np.floor(min_impact)),
+            max_value=float(np.ceil(max_impact)),
+            value=(float(np.floor(min_impact)), float(np.ceil(max_impact))),
+        )
 
-    st.markdown("---")
-    if st.button("🔄 Refresh data", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+        only_deadlocked = st.checkbox("Only show deadlocked claims", value=False)
+
+        st.markdown("---")
+        if st.button("🔄 Refresh data", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+if not onboarded:
+    render_onboarding_wizard(config_client, tenant_id, client_config)
+    st.stop()
 
 # ----------------------------------------------------------------------------
 # Apply filters
