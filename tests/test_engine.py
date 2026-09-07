@@ -48,6 +48,7 @@ def test_flags_no_exit_condition_for_unresolvable_hold():
         "eligible_wq_ids": ["WQ-317"],
         "hold_reason": "cob_pending",
         "days_in_stage": 9,
+        "account_balance": 482.13,
     }
 
     finding = engine.diagnose(record)
@@ -56,6 +57,25 @@ def test_flags_no_exit_condition_for_unresolvable_hold():
     assert "no_exit_condition" in finding.deadlock_types
     assert "ambiguous_wq_routing" not in finding.deadlock_types
     assert "no_escalation_owner" not in finding.deadlock_types
+    assert finding.financial_impact == 482.13
+    assert finding.as_dict()["financial_impact"] == 482.13
+
+
+def test_financial_impact_defaults_to_zero_when_account_balance_is_absent():
+    engine = make_engine()
+    record = {
+        "token_id": "tok_1b",
+        "waterfall_stage": "follow_up",
+        "current_wq_id": "WQ-317",
+        "eligible_wq_ids": ["WQ-317"],
+        "hold_reason": "cob_pending",
+        "days_in_stage": 9,
+    }
+
+    finding = engine.diagnose(record)
+
+    assert finding is not None
+    assert finding.financial_impact == 0.0
 
 
 def test_flags_ambiguous_wq_routing_when_all_eligible_wqs_unassigned():

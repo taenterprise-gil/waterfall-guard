@@ -128,6 +128,10 @@ class DeadlockFinding:
     active_hold_names: List[str]
     eligible_wq_ids: List[str]
     unassigned_wq_ids: List[str]
+    # Account balance, carried through from the de-identified record
+    # (`account_balance` is non-PHI - see deident.py's PHI_FIELDS - so it's
+    # already safe by the time it reaches here).
+    financial_impact: float = 0.0
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -137,6 +141,7 @@ class DeadlockFinding:
             "active_hold_names": self.active_hold_names,
             "eligible_wq_ids": self.eligible_wq_ids,
             "unassigned_wq_ids": self.unassigned_wq_ids,
+            "financial_impact": self.financial_impact,
         }
 
 
@@ -203,6 +208,7 @@ class ReconciliationEngine:
             active_hold_names=[hold.name for hold in active_holds],
             eligible_wq_ids=eligible_wq_ids,
             unassigned_wq_ids=unassigned_wq_ids,
+            financial_impact=float(record.get("account_balance") or 0.0),
         )
 
     def diagnose_batch(self, records: List[Dict[str, Any]]) -> List[DeadlockFinding]:

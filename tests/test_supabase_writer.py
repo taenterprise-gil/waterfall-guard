@@ -11,6 +11,7 @@ SAMPLE_PAYLOAD = {
             "active_hold_names": ["coordination_of_benefits_pending"],
             "eligible_wq_ids": ["WQ-317"],
             "unassigned_wq_ids": ["WQ-317"],
+            "financial_impact": 482.13,
         }
     ],
 }
@@ -102,6 +103,7 @@ def test_write_diagnostic_payload_inserts_deidentified_rows():
     assert row["waterfall_stage"] == "follow_up"
     assert row["deadlock_types"] == ["no_exit_condition"]
     assert row["eligible_wq_ids"] == ["WQ-317"]
+    assert row["financial_impact"] == 482.13
 
 
 def test_write_diagnostic_payload_contains_no_phi_fields():
@@ -118,6 +120,7 @@ def test_write_diagnostic_payload_contains_no_phi_fields():
         "active_hold_names",
         "eligible_wq_ids",
         "unassigned_wq_ids",
+        "financial_impact",
     }
 
 
