@@ -46,7 +46,9 @@ waterfall_guard/
   engine.py               waterfall stages, hospital rules, deadlock detection
   llm/client.py            ZDR-enforced LLM diagnostic client
   agents/                 legacy orphaned-claim reconciliation agent
-  integrations/           mock Clarity/Caboodle/FHIR Task Epic ingestion
+  integrations/           mock Clarity/Caboodle/FHIR Task Epic ingestion,
+                          plus a real FHIR write-back client for posting
+                          claim resolution status updates to Epic
   models/                 claim data models
   config/                 environment-driven settings
   main.py                  wires ingestion -> deident -> engine -> llm
