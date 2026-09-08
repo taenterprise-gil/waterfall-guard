@@ -14,6 +14,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from waterfall_guard.integrations.fhir_writeback_client import (
+    EpicFHIRWritebackClient,
+    ResolutionStatus,
+    ResolutionUpdate,
+    TenantEpicConfig,
+)
+
 # ----------------------------------------------------------------------------
 # Page config
 # ----------------------------------------------------------------------------
@@ -720,5 +727,64 @@ st.download_button(
     file_name=f"openclaw_claims_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
     mime="text/csv",
 )
+
+# ----------------------------------------------------------------------------
+# Row 5 — Post resolution to Epic
+# ----------------------------------------------------------------------------
+st.markdown("---")
+st.subheader("Post Resolution to Epic")
+st.caption(
+    "Marks a deadlocked claim resolved in Epic. `token_id` is de-identified "
+    "and can't be reversed to a real Epic Task ID from this dashboard — "
+    "look the claim up in Epic's worklist to get it."
+)
+
+RESOLUTION_LABELS = {
+    ResolutionStatus.RESOLVED: "Resolved",
+    ResolutionStatus.ESCALATED: "Escalated",
+    ResolutionStatus.WONT_FIX: "Won't Fix",
+}
+
+with st.form("post_resolution_form"):
+    ref_token_id = st.selectbox(
+        "Claim (token_id, for reference)",
+        options=table_df["token_id"].tolist() if "token_id" in table_df.columns else [],
+    )
+    epic_task_id = st.text_input("Epic FHIR Task ID")
+    resolution_status = st.selectbox(
+        "Resolution",
+        options=list(RESOLUTION_LABELS.keys()),
+        format_func=lambda s: RESOLUTION_LABELS[s],
+    )
+    resolution_note = st.text_area("Resolution note")
+    resolved_by = st.text_input("Your name / staff ID")
+    post_submitted = st.form_submit_button("Post Resolution to Epic")
+
+if post_submitted:
+    if not epic_task_id.strip() or not resolution_note.strip() or not resolved_by.strip():
+        st.error("Epic FHIR Task ID, resolution note, and staff ID are all required.")
+    else:
+        try:
+            epic_config = TenantEpicConfig.from_client_configuration_row(
+                client_config,
+                client_secret=st.secrets.get("EPIC_CLIENT_SECRET", os.environ.get("EPIC_CLIENT_SECRET", "")),
+                token_url=st.secrets.get("EPIC_TOKEN_URL", os.environ.get("EPIC_TOKEN_URL", "")),
+            )
+        except ValueError as exc:
+            st.error(f"Epic isn't configured for this tenant yet: {exc}")
+        else:
+            writeback_client = EpicFHIRWritebackClient(epic_config)
+            result = writeback_client.post_resolution(
+                ResolutionUpdate(
+                    task_id=epic_task_id.strip(),
+                    status=resolution_status,
+                    note=resolution_note.strip(),
+                    resolved_by=resolved_by.strip(),
+                )
+            )
+            if result.ok:
+                st.success(f"Epic Task {result.task_id} updated to '{result.fhir_status}'.")
+            else:
+                st.error(f"Failed to post resolution to Epic: {result.error}")
 
 st.caption("OpenClaw © 2026 · Diagnostic data sourced from Supabase PostgreSQL pipeline · Data refreshes every 60s when connected live.")
