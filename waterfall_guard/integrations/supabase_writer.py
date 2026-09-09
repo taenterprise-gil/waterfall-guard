@@ -94,6 +94,7 @@ class SupabaseWriter:
                 "eligible_wq_ids": finding["eligible_wq_ids"],
                 "unassigned_wq_ids": finding["unassigned_wq_ids"],
                 "financial_impact": finding.get("financial_impact", 0.0),
+                "filing_deadline": finding.get("filing_deadline"),
             }
             for finding in zdr_payload.get("findings", [])
         ]

@@ -132,6 +132,10 @@ class DeadlockFinding:
     # (`account_balance` is non-PHI - see deident.py's PHI_FIELDS - so it's
     # already safe by the time it reaches here).
     financial_impact: float = 0.0
+    # ISO-8601 timely-filing deadline, carried through from the de-identified
+    # record the same way (not a PHI_FIELDS entry, so deident.py passes it
+    # through as-is). None when the source ingestion doesn't supply one.
+    filing_deadline: Optional[str] = None
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -142,6 +146,7 @@ class DeadlockFinding:
             "eligible_wq_ids": self.eligible_wq_ids,
             "unassigned_wq_ids": self.unassigned_wq_ids,
             "financial_impact": self.financial_impact,
+            "filing_deadline": self.filing_deadline,
         }
 
 
@@ -209,6 +214,7 @@ class ReconciliationEngine:
             eligible_wq_ids=eligible_wq_ids,
             unassigned_wq_ids=unassigned_wq_ids,
             financial_impact=float(record.get("account_balance") or 0.0),
+            filing_deadline=record.get("filing_deadline"),
         )
 
     def diagnose_batch(self, records: List[Dict[str, Any]]) -> List[DeadlockFinding]:

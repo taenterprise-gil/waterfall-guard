@@ -78,6 +78,42 @@ def test_financial_impact_defaults_to_zero_when_account_balance_is_absent():
     assert finding.financial_impact == 0.0
 
 
+def test_filing_deadline_passes_through_from_record():
+    engine = make_engine()
+    record = {
+        "token_id": "tok_1c",
+        "waterfall_stage": "follow_up",
+        "current_wq_id": "WQ-317",
+        "eligible_wq_ids": ["WQ-317"],
+        "hold_reason": "cob_pending",
+        "days_in_stage": 9,
+        "filing_deadline": "2026-09-20T00:00:00+00:00",
+    }
+
+    finding = engine.diagnose(record)
+
+    assert finding is not None
+    assert finding.filing_deadline == "2026-09-20T00:00:00+00:00"
+    assert finding.as_dict()["filing_deadline"] == "2026-09-20T00:00:00+00:00"
+
+
+def test_filing_deadline_defaults_to_none_when_absent():
+    engine = make_engine()
+    record = {
+        "token_id": "tok_1d",
+        "waterfall_stage": "follow_up",
+        "current_wq_id": "WQ-317",
+        "eligible_wq_ids": ["WQ-317"],
+        "hold_reason": "cob_pending",
+        "days_in_stage": 9,
+    }
+
+    finding = engine.diagnose(record)
+
+    assert finding is not None
+    assert finding.filing_deadline is None
+
+
 def test_flags_ambiguous_wq_routing_when_all_eligible_wqs_unassigned():
     engine = make_engine()
     record = {

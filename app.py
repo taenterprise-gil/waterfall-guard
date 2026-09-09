@@ -216,22 +216,39 @@ def generate_demo_data(n: int = 1200, seed: int = 7) -> pd.DataFrame:
         "Auth Renewal",
         "Legal Review",
         "Provider Follow-up",
-        None,
     ]
+    # Unowned/default holding queues (no assigned staff) vs. owned ones —
+    # used to synthesize the collision-detection signal below.
+    unassigned_wq_pool = ["WQ-204", "WQ-317", "WQ-512"]
+    owned_wq_pool = ["WQ-101", "WQ-EDIT-CORRECT", "WQ-450"]
     payers = ["Aetna", "UnitedHealth", "Cigna", "Humana", "Anthem BCBS", "Medicaid", "Medicare"]
     facilities = ["Hancock Regional", "Northgate Clinic", "Riverside Medical", "Summit Health", "Lakeview Care"]
 
     stage_weights = [0.10, 0.09, 0.08, 0.14, 0.16, 0.15, 0.10, 0.12, 0.06]
     stages = rng.choice(waterfall_stages, size=n, p=stage_weights)
+    deadlock_prone_stages = ("Denial Triage", "Appeal Filed", "Adjudication")
 
     deadlocks = []
+    active_hold_names = []
+    eligible_wq_ids = []
+    unassigned_wq_ids = []
     for s in stages:
-        if s in ("Denial Triage", "Appeal Filed", "Adjudication"):
+        if s in deadlock_prone_stages:
             deadlocks.append(rng.choice(deadlock_pool, p=[0.16, 0.14, 0.12, 0.1, 0.13, 0.1, 0.13, 0.1, 0.02]))
+            # Deadlock-prone stages skew toward multiple concurrent holds,
+            # which is what makes the collision-detection filter meaningful.
+            hold_count = rng.choice([0, 1, 2, 3], p=[0.15, 0.25, 0.35, 0.25])
         else:
             deadlocks.append(rng.choice([None] + deadlock_pool[:4], p=[0.55, 0.15, 0.12, 0.1, 0.08]))
+            hold_count = rng.choice([0, 1, 2], p=[0.55, 0.35, 0.10])
 
-    holds = [rng.choice(hold_pool) if rng.random() > 0.35 else None for _ in range(n)]
+        holds = list(rng.choice(hold_pool, size=hold_count, replace=False)) if hold_count else []
+        active_hold_names.append(holds)
+
+        wq_count = rng.choice([0, 1, 2], p=[0.4, 0.35, 0.25]) if holds else 0
+        wq_choices = list(rng.choice(unassigned_wq_pool + owned_wq_pool, size=wq_count, replace=False)) if wq_count else []
+        eligible_wq_ids.append(wq_choices)
+        unassigned_wq_ids.append([wq for wq in wq_choices if wq in unassigned_wq_pool])
 
     base_impact = rng.gamma(shape=2.2, scale=850, size=n)
     stage_multiplier = np.array([
@@ -244,17 +261,27 @@ def generate_demo_data(n: int = 1200, seed: int = 7) -> pd.DataFrame:
         datetime.now() - timedelta(days=int(d), hours=int(rng.integers(0, 23)))
         for d in rng.exponential(scale=25, size=n)
     ]
+    # Filing deadline is intrinsic to the claim (service date + payer
+    # timely-filing window), not tied to when this diagnostic happened to
+    # run — so it's generated relative to now, not to created_at. Mostly
+    # comfortably in the future, with a realistic minority already overdue
+    # or due imminently so the timely-filing alert has something to show.
+    now = datetime.now()
+    filing_deadline = [now + timedelta(days=int(d)) for d in rng.normal(loc=45, scale=20, size=n)]
 
     df = pd.DataFrame(
         {
             "token_id": [f"CLM-{100000 + i}" for i in range(n)],
             "waterfall_stage": stages,
             "deadlock_types": deadlocks,
-            "active_hold_names": holds,
+            "active_hold_names": active_hold_names,
+            "eligible_wq_ids": eligible_wq_ids,
+            "unassigned_wq_ids": unassigned_wq_ids,
             "financial_impact": financial_impact,
             "payer": rng.choice(payers, size=n),
             "facility": rng.choice(facilities, size=n),
             "created_at": created_at,
+            "filing_deadline": filing_deadline,
         }
     )
     return df
@@ -469,6 +496,94 @@ def render_onboarding_wizard(client, tenant_id: str, existing: dict | None):
 
 
 # ----------------------------------------------------------------------------
+# Alerts — claim collisions & timely filing risk
+# ----------------------------------------------------------------------------
+def _as_list(value) -> list:
+    """Normalizes a claim's array-ish field (real list, NaN, or None) to a plain list."""
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    try:
+        if pd.isna(value):
+            return []
+    except (TypeError, ValueError):
+        pass
+    return [value]
+
+
+def get_filing_deadline_alert_days() -> int:
+    """Days-out window for the timely filing alert (claims due within this many days are flagged)."""
+    raw = st.secrets.get("FILING_DEADLINE_ALERT_DAYS", os.environ.get("FILING_DEADLINE_ALERT_DAYS", "7"))
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 7
+
+
+def render_alerts(df: pd.DataFrame) -> None:
+    """
+    Two alert classes surfaced above the detail charts:
+      1. Claim collisions — 2+ active edits (hold conditions) on a claim that
+         is routing to an unassigned/default holding queue, i.e. multiple
+         competing edits with nobody accountable to resolve any of them.
+      2. Timely filing risk — claims within `FILING_DEADLINE_ALERT_DAYS` of
+         (or past) their real payer filing_deadline.
+    """
+    active_edit_counts = (
+        df["active_hold_names"].apply(lambda v: len(_as_list(v))) if "active_hold_names" in df.columns else pd.Series(0, index=df.index)
+    )
+    unassigned_counts = (
+        df["unassigned_wq_ids"].apply(lambda v: len(_as_list(v))) if "unassigned_wq_ids" in df.columns else pd.Series(0, index=df.index)
+    )
+    collisions_df = df[(active_edit_counts >= 2) & (unassigned_counts > 0)]
+
+    filing_alert_days = get_filing_deadline_alert_days()
+    if "filing_deadline" in df.columns:
+        filing_deadline_ts = pd.to_datetime(df["filing_deadline"], errors="coerce", utc=True)
+        days_until = (filing_deadline_ts - pd.Timestamp.now(tz="UTC")).dt.total_seconds() / 86400
+        filing_mask = filing_deadline_ts.notna() & (days_until <= filing_alert_days)
+    else:
+        days_until = pd.Series(dtype=float, index=df.index)
+        filing_mask = pd.Series(False, index=df.index)
+
+    filing_alerts_df = df[filing_mask].copy()
+    if not filing_alerts_df.empty:
+        filing_alerts_df["days_until_filing_deadline"] = days_until[filing_mask].round(1).values
+
+    if collisions_df.empty and filing_alerts_df.empty:
+        return
+
+    st.markdown("### 🚨 Alerts")
+
+    if not collisions_df.empty:
+        st.error(
+            f"**Claim collisions:** {len(collisions_df):,} claim(s) have 2+ active edits routing to an "
+            f"unassigned/default holding queue — nobody currently owns resolution."
+        )
+        with st.expander(f"View {len(collisions_df):,} colliding claim(s)"):
+            cols = [c for c in ["token_id", "waterfall_stage", "active_hold_names", "unassigned_wq_ids", "financial_impact"] if c in collisions_df.columns]
+            st.dataframe(collisions_df[cols], use_container_width=True, height=min(360, 60 + 35 * len(collisions_df)))
+
+    if not filing_alerts_df.empty:
+        overdue = filing_alerts_df[filing_alerts_df["days_until_filing_deadline"] < 0]
+        upcoming = filing_alerts_df[filing_alerts_df["days_until_filing_deadline"] >= 0]
+        if not overdue.empty:
+            st.error(f"**Timely filing:** {len(overdue):,} claim(s) are PAST their filing deadline.")
+        if not upcoming.empty:
+            st.warning(f"**Timely filing:** {len(upcoming):,} claim(s) are due within {filing_alert_days} day(s).")
+        with st.expander(f"View {len(filing_alerts_df):,} claim(s) near/past filing deadline"):
+            cols = [c for c in ["token_id", "waterfall_stage", "filing_deadline", "days_until_filing_deadline", "financial_impact"] if c in filing_alerts_df.columns]
+            st.dataframe(
+                filing_alerts_df[cols].sort_values("days_until_filing_deadline"),
+                use_container_width=True,
+                height=min(360, 60 + 35 * len(filing_alerts_df)),
+            )
+
+    st.markdown("---")
+
+
+# ----------------------------------------------------------------------------
 # Sidebar — filters & connection status
 # ----------------------------------------------------------------------------
 tenant_id = get_tenant_id()
@@ -574,6 +689,8 @@ with header_col2:
 if df.empty:
     st.warning("No claims match the current filters. Adjust filters in the sidebar.")
     st.stop()
+
+render_alerts(df)
 
 # ----------------------------------------------------------------------------
 # KPI row
