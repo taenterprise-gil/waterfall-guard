@@ -551,9 +551,6 @@ def render_alerts(df: pd.DataFrame) -> None:
     if not filing_alerts_df.empty:
         filing_alerts_df["days_until_filing_deadline"] = days_until[filing_mask].round(1).values
 
-    if collisions_df.empty and filing_alerts_df.empty:
-        return
-
     st.markdown("### 🚨 Alerts")
 
     if not collisions_df.empty:
@@ -565,17 +562,27 @@ def render_alerts(df: pd.DataFrame) -> None:
             cols = [c for c in ["token_id", "waterfall_stage", "active_hold_names", "unassigned_wq_ids", "financial_impact"] if c in collisions_df.columns]
             st.dataframe(collisions_df[cols], use_container_width=True, height=min(360, 60 + 35 * len(collisions_df)))
 
+    # Timely Filing always renders, even at zero, so staff can see the alert
+    # is live and watching rather than wondering whether it ran at all.
     if not filing_alerts_df.empty:
         overdue = filing_alerts_df[filing_alerts_df["days_until_filing_deadline"] < 0]
         upcoming = filing_alerts_df[filing_alerts_df["days_until_filing_deadline"] >= 0]
-        if not overdue.empty:
-            st.error(f"**Timely filing:** {len(overdue):,} claim(s) are PAST their filing deadline.")
-        if not upcoming.empty:
-            st.warning(f"**Timely filing:** {len(upcoming):,} claim(s) are due within {filing_alert_days} day(s).")
-        st.caption(
-            "Filing deadlines for claims ingested before a real payer deadline feed was "
-            "wired in are estimated as created_at + 90 days, not a true per-claim deadline."
-        )
+    else:
+        overdue = upcoming = filing_alerts_df
+
+    if not overdue.empty:
+        st.error(f"**Timely filing:** {len(overdue):,} claim(s) are PAST their filing deadline.")
+    if not upcoming.empty:
+        st.warning(f"**Timely filing:** {len(upcoming):,} claim(s) are due within {filing_alert_days} day(s).")
+    if filing_alerts_df.empty:
+        st.success(f"**Timely filing:** 0 urgent claims — none within {filing_alert_days} day(s) of their filing deadline.")
+
+    st.caption(
+        "Filing deadlines for claims ingested before a real payer deadline feed was "
+        "wired in are estimated as created_at + 90 days, not a true per-claim deadline."
+    )
+
+    if not filing_alerts_df.empty:
         with st.expander(f"View {len(filing_alerts_df):,} claim(s) near/past filing deadline"):
             cols = [c for c in ["token_id", "waterfall_stage", "filing_deadline", "days_until_filing_deadline", "financial_impact"] if c in filing_alerts_df.columns]
             st.dataframe(
