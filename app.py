@@ -281,14 +281,29 @@ CONFIG_TABLE_NAME = "client_configurations"
 INGESTION_MODE_LABELS = {"etl_batch": "ETL Batch", "fhir_api": "FHIR API"}
 
 
-def get_tenant_id() -> str:
+def get_tenant_id() -> str | None:
     """
-    This dashboard is deployed one instance per client organization, so the
-    tenant is fixed per-deployment rather than resolved from a login session
-    (there's no auth layer yet — client_configurations' RLS policy expects a
-    JWT `tenant_id` claim that nothing here issues).
+    Resolve which client/organization this visitor belongs to, so
+    client_configurations is looked up per-tenant instead of hard-coded to
+    one deployment-wide default (the bug that made every new client land on
+    the already-onboarded "default" tenant and never see the wizard):
+      1. ?tenant_id=<org-id> in the URL — the bookmarkable link each client
+         gets, e.g. https://.../?tenant_id=summit-health.
+      2. A tenant already chosen this browser session (via the picker below,
+         or a prior query param), kept in st.session_state across reruns.
+    Returns None if neither resolves — the caller then shows the
+    organization picker instead of a dashboard/wizard.
+
+    (There's no auth layer yet — client_configurations' RLS policy expects a
+    JWT `tenant_id` claim that nothing here issues, so lookups go through
+    the service-role client scoped to this table only.)
     """
-    return st.secrets.get("TENANT_ID", os.environ.get("TENANT_ID", "default"))
+    query_tenant = st.query_params.get("tenant_id", "").strip()
+    if query_tenant:
+        st.session_state["tenant_id"] = query_tenant
+        return query_tenant
+
+    return st.session_state.get("tenant_id") or None
 
 
 @st.cache_resource(show_spinner=False)
@@ -328,6 +343,63 @@ def fetch_client_configuration(_client, tenant_id: str):
     except Exception as exc:
         st.session_state["config_fetch_error"] = str(exc)
         return None
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_known_tenants(_client) -> list[dict]:
+    """tenant_id/organization_name pairs already onboarded, for the picker's dropdown."""
+    if _client is None:
+        return []
+    try:
+        response = (
+            _client.table(CONFIG_TABLE_NAME)
+            .select("tenant_id, organization_name")
+            .order("organization_name")
+            .execute()
+        )
+        return response.data or []
+    except Exception:
+        return []
+
+
+def render_tenant_selector(client) -> None:
+    """
+    Entry gate shown when no tenant is resolved yet from the URL or this
+    browser session. An existing client picks their organization from a
+    dropdown; a brand-new client types the Client/Organization ID OpenClaw
+    assigned them. Either path lands on the onboarding wizard (if new/
+    incomplete) or straight on their dashboard (if already onboarded).
+    """
+    st.title("Welcome to OpenClaw")
+    st.subheader("Select your organization")
+
+    known = fetch_known_tenants(client)
+    NEW_OPTION = "+ New client — enter organization ID"
+    labels = [f"{t['organization_name']} ({t['tenant_id']})" for t in known]
+    label_to_id = dict(zip(labels, [t["tenant_id"] for t in known]))
+    options = labels + [NEW_OPTION]
+
+    choice = st.selectbox("Client / Organization", options, index=len(options) - 1)
+
+    if choice == NEW_OPTION:
+        new_id = st.text_input(
+            "New Client/Organization ID",
+            placeholder="e.g. summit-health",
+            help="A short slug for this client. It becomes part of their bookmarkable URL.",
+        )
+        resolved = new_id.strip().lower().replace(" ", "-") or None
+    else:
+        resolved = label_to_id.get(choice)
+
+    if st.button("Continue", type="primary", disabled=not resolved):
+        st.session_state["tenant_id"] = resolved
+        st.query_params["tenant_id"] = resolved
+        st.rerun()
+
+    st.caption(
+        "Tip: bookmark this page with `?tenant_id=your-org-id` in the URL to "
+        "skip this screen and go straight to your dashboard next time."
+    )
 
 
 def render_onboarding_wizard(client, tenant_id: str, existing: dict | None):
@@ -401,6 +473,11 @@ def render_onboarding_wizard(client, tenant_id: str, existing: dict | None):
 # ----------------------------------------------------------------------------
 tenant_id = get_tenant_id()
 config_client = get_config_client()
+
+if not tenant_id:
+    render_tenant_selector(config_client)
+    st.stop()
+
 client_config = fetch_client_configuration(config_client, tenant_id)
 onboarded = bool(client_config and client_config.get("is_onboarding_completed"))
 
@@ -408,10 +485,17 @@ with st.sidebar:
     st.image("assets/logo.png", width=48)
     st.markdown("### OpenClaw")
     st.caption("Revenue Recovery Diagnostics")
+    st.caption(f"Organization: `{tenant_id}`")
+    if st.button("Switch organization", use_container_width=True):
+        st.session_state.pop("tenant_id", None)
+        try:
+            del st.query_params["tenant_id"]
+        except KeyError:
+            pass
+        st.rerun()
     st.markdown("---")
 
     if not onboarded:
-        st.caption(f"Tenant: `{tenant_id}`")
         st.info("Complete onboarding to unlock the dashboard.")
         df_raw, is_live = pd.DataFrame(), False
         selected_stages, selected_payers = [], None
