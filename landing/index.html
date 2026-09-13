@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Open Claw — Revenue Recovery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<style>
+/* Art direction: Open Claw — clinical trust + forensic precision
+   Palette: cool teal/deep-green (healthtech, sober, not clinical-white-sterile), single accent
+   Typography: Satoshi (display+body), JetBrains Mono for financial/data figures
+   Density: dense, compact, dashboard-first */
+
+:root, [data-theme="light"]{
+  --color-bg:#f5f7f7; --color-surface:#ffffff; --color-surface-2:#fbfcfc;
+  --color-surface-offset:#eef1f1; --color-surface-offset-2:#e4e8e8; --color-surface-dynamic:#dde2e2;
+  --color-divider:#e0e5e5; --color-border:#d3d9d9;
+  --color-text:#0f2a2b; --color-text-muted:#5b6e6e; --color-text-faint:#9aa8a8; --color-text-inverse:#f5f7f7;
+  --color-primary:#0b6e6a; --color-primary-hover:#08514e; --color-primary-active:#063938; --color-primary-highlight:#cfe4e2;
+  --color-success:#2f7a4f; --color-success-highlight:#dcece1;
+  --color-error:#a12c2c; --color-error-highlight:#f1dcdc;
+  --color-warning:#9a6a10; --color-warning-highlight:#eee0c6;
+  --radius-sm:.375rem; --radius-md:.5rem; --radius-lg:.75rem; --radius-xl:1rem; --radius-full:9999px;
+  --shadow-sm:0 1px 2px oklch(0.2 0.02 190/.06); --shadow-md:0 4px 12px oklch(0.2 0.02 190/.08); --shadow-lg:0 12px 32px oklch(0.2 0.02 190/.14);
+  --font-display:'Satoshi','Inter',sans-serif; --font-body:'Satoshi','Inter',sans-serif; --font-mono:'JetBrains Mono',monospace;
+  --transition-interactive: 180ms cubic-bezier(0.16,1,0.3,1);
+}
+[data-theme="dark"]{
+  --color-bg:#0a1414; --color-surface:#0f1a1a; --color-surface-2:#121f1f;
+  --color-surface-offset:#152323; --color-surface-offset-2:#1a2b2b; --color-surface-dynamic:#213636;
+  --color-divider:#1e3030; --color-border:#2a4040;
+  --color-text:#dbe8e7; --color-text-muted:#7f9694; --color-text-faint:#526363; --color-text-inverse:#0f1a1a;
+  --color-primary:#3fb3ac; --color-primary-hover:#5cc5be; --color-primary-active:#7ad4ce; --color-primary-highlight:#1a3634;
+  --color-success:#5cc17f; --color-success-highlight:#173626;
+  --color-error:#e06868; --color-error-highlight:#3a1e1e;
+  --color-warning:#d9a63e; --color-warning-highlight:#3a3018;
+  --shadow-sm:0 1px 2px oklch(0 0 0/.3); --shadow-md:0 4px 12px oklch(0 0 0/.4); --shadow-lg:0 12px 32px oklch(0 0 0/.5);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;scroll-behavior:smooth}
+body{font-family:var(--font-body);background:var(--color-bg);color:var(--color-text);min-height:100dvh;line-height:1.5;font-size:16px}
+img{display:block;max-width:100%}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:none}
+input{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px;border-radius:var(--radius-sm)}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums lining-nums}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+
+/* ---------- LOGIN VIEW ---------- */
+#login-view{
+  min-height:100dvh; display:grid; grid-template-columns:1fr; place-items:center;
+  padding:1.5rem; position:relative; overflow:hidden;
+}
+@media(min-width:900px){ #login-view{grid-template-columns:1.1fr 1fr} }
+.login-visual{
+  display:none; position:relative; height:100%; background:
+    radial-gradient(circle at 20% 20%, color-mix(in oklch, var(--color-primary) 22%, var(--color-bg)) 0%, transparent 55%),
+    radial-gradient(circle at 80% 75%, color-mix(in oklch, var(--color-primary) 14%, var(--color-bg)) 0%, transparent 50%),
+    var(--color-surface-offset);
+  padding:3rem; flex-direction:column; justify-content:space-between;
+}
+@media(min-width:900px){ .login-visual{display:flex} }
+.login-visual .brandmark{display:flex;align-items:center;gap:.6rem}
+.login-visual .brandmark span{font-family:var(--font-display);font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
+.login-visual .pitch{max-width:32ch}
+.login-visual .pitch h2{font-family:var(--font-display);font-weight:700;font-size:clamp(1.4rem,2vw,1.9rem);line-height:1.2;margin-bottom:.75rem}
+.login-visual .pitch p{color:var(--color-text-muted);font-size:.95rem}
+.login-visual .stat-row{display:flex;gap:1.5rem;margin-top:2rem}
+.login-visual .stat b{display:block;font-family:var(--font-mono);font-size:1.5rem;color:var(--color-primary)}
+.login-visual .stat span{font-size:.75rem;color:var(--color-text-muted)}
+
+.login-panel{width:100%;max-width:400px;padding:1rem}
+.login-panel .brandmark-mobile{display:flex;align-items:center;gap:.5rem;margin-bottom:2rem}
+@media(min-width:900px){ .login-panel .brandmark-mobile{display:none} }
+.login-panel .brandmark-mobile span{font-family:var(--font-display);font-weight:700;font-size:1rem}
+.login-panel h1{font-family:var(--font-display);font-weight:700;font-size:1.5rem;margin-bottom:.35rem}
+.login-panel .sub{color:var(--color-text-muted);font-size:.9rem;margin-bottom:1.75rem}
+.field{margin-bottom:1.1rem}
+.field label{display:block;font-size:.8rem;font-weight:500;margin-bottom:.4rem;color:var(--color-text-muted)}
+.field .input-wrap{position:relative;display:flex;align-items:center}
+.field .input-wrap svg{position:absolute;left:.75rem;width:16px;height:16px;color:var(--color-text-faint);pointer-events:none}
+.field input{
+  width:100%; padding:.7rem .75rem .7rem 2.35rem; border-radius:var(--radius-md);
+  border:1px solid var(--color-border); background:var(--color-surface); font-size:.9rem;
+  transition:border-color var(--transition-interactive), box-shadow var(--transition-interactive);
+}
+.field input:focus{border-color:var(--color-primary); box-shadow:0 0 0 3px var(--color-primary-highlight); outline:none}
+.field .toggle-visibility{position:absolute;right:.65rem;background:none;border:none;color:var(--color-text-faint);display:flex;padding:.25rem}
+.field-error{margin-top:.4rem;font-size:.78rem;color:var(--color-error);display:none;align-items:center;gap:.3rem}
+.field.has-error input{border-color:var(--color-error)}
+.field.has-error .field-error{display:flex}
+.row-between{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.4rem;font-size:.85rem}
+.remember{display:flex;align-items:center;gap:.5rem;color:var(--color-text-muted)}
+.remember input{width:16px;height:16px;accent-color:var(--color-primary)}
+.forgot{color:var(--color-primary);font-weight:500}
+.forgot:hover{color:var(--color-primary-hover)}
+.btn-primary{
+  width:100%; padding:.75rem; border-radius:var(--radius-md); background:var(--color-primary); color:#fff;
+  font-weight:600; font-size:.92rem; display:flex; align-items:center; justify-content:center; gap:.5rem;
+  transition:background var(--transition-interactive), transform var(--transition-interactive);
+}
+.btn-primary:hover{background:var(--color-primary-hover)}
+.btn-primary:active{transform:scale(.98)}
+.btn-primary:disabled{opacity:.7;cursor:not-allowed}
+.btn-primary .spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none}
+.btn-primary.loading .spinner{display:inline-block}
+.btn-primary.loading .btn-label{opacity:.85}
+@keyframes spin{to{transform:rotate(360deg)}}
+.divider-row{display:flex;align-items:center;gap:.75rem;margin:1.4rem 0;color:var(--color-text-faint);font-size:.78rem}
+.divider-row::before,.divider-row::after{content:'';flex:1;height:1px;background:var(--color-divider)}
+.sso-row{display:flex;gap:.6rem}
+.btn-ghost{
+  flex:1; padding:.65rem; border-radius:var(--radius-md); border:1px solid var(--color-border);
+  background:var(--color-surface); display:flex; align-items:center; justify-content:center; gap:.5rem; font-size:.85rem; font-weight:500;
+}
+.btn-ghost:hover{background:var(--color-surface-offset)}
+.signup-line{margin-top:1.75rem; text-align:center; font-size:.85rem; color:var(--color-text-muted)}
+.signup-line a{color:var(--color-primary); font-weight:600}
+.theme-toggle-login{position:absolute; top:1.5rem; right:1.5rem; z-index:5; width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-full);background:var(--color-surface);border:1px solid var(--color-border)}
+.theme-toggle-login svg{width:16px;height:16px}
+.security-badge{display:flex;align-items:center;gap:.4rem;font-size:.72rem;color:var(--color-text-faint);margin-top:1.5rem;justify-content:center}
+.security-badge svg{width:13px;height:13px}
+
+/* Shake animation for invalid submit */
+@keyframes shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}30%,50%,70%{transform:translateX(-4px)}40%,60%{transform:translateX(4px)}}
+.shake{animation:shake .5s}
+
+/* ---------- DASHBOARD VIEW ---------- */
+#dashboard-view{display:none}
+#dashboard-view.active{display:block}
+#login-view.hidden{display:none}
+
+html,body.app-mode{height:100%;overflow:hidden}
+.app{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto 1fr;height:100dvh}
+
+.sidebar{grid-row:1/-1;width:230px;background:var(--color-surface);border-right:1px solid var(--color-divider);display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;transition:width var(--transition-interactive)}
+.sidebar.collapsed{width:68px}
+.sidebar-head{display:flex;align-items:center;gap:.6rem;padding:1.1rem 1.1rem .9rem}
+.sidebar-head span{font-family:var(--font-display);font-weight:700;font-size:1rem;white-space:nowrap;overflow:hidden}
+.sidebar.collapsed .sidebar-head span, .sidebar.collapsed .nav-label, .sidebar.collapsed .nav-section-label{display:none}
+.nav-section-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--color-text-faint);padding:1rem 1.1rem .3rem;font-weight:600}
+.nav-item{display:flex;align-items:center;gap:.7rem;padding:.55rem 1.1rem;font-size:.85rem;color:var(--color-text-muted);font-weight:500;position:relative;white-space:nowrap}
+.nav-item svg{width:17px;height:17px;flex-shrink:0}
+.nav-item:hover{background:var(--color-surface-offset);color:var(--color-text)}
+.nav-item.active{color:var(--color-primary);background:var(--color-primary-highlight)}
+.nav-item.active::before{content:'';position:absolute;left:0;top:.3rem;bottom:.3rem;width:3px;background:var(--color-primary);border-radius:var(--radius-full)}
+.nav-badge{margin-left:auto;background:var(--color-error);color:#fff;font-size:.68rem;font-weight:700;padding:.1rem .4rem;border-radius:var(--radius-full)}
+.sidebar-foot{margin-top:auto;padding:1rem 1.1rem;border-top:1px solid var(--color-divider);display:flex;align-items:center;gap:.6rem}
+.avatar{width:32px;height:32px;border-radius:var(--radius-full);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:700;flex-shrink:0}
+.sidebar-foot .who{font-size:.8rem;line-height:1.25;overflow:hidden}
+.sidebar-foot .who b{display:block;font-weight:600}
+.sidebar-foot .who span{color:var(--color-text-faint);font-size:.72rem}
+.sidebar.collapsed .who{display:none}
+.collapse-btn{position:absolute;top:1.15rem;right:-11px;width:22px;height:22px;border-radius:var(--radius-full);background:var(--color-surface);border:1px solid var(--color-border);display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-sm)}
+.collapse-btn svg{width:12px;height:12px}
+.sidebar{position:relative}
+
+.topbar{grid-column:2;position:sticky;top:0;z-index:10;background:var(--color-surface);border-bottom:1px solid var(--color-divider);display:flex;align-items:center;justify-content:space-between;padding:.85rem 1.5rem;gap:1rem}
+.topbar h1{font-family:var(--font-display);font-size:1.15rem;font-weight:700}
+.topbar-right{display:flex;align-items:center;gap:.7rem}
+.icon-btn{width:36px;height:36px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);position:relative}
+.icon-btn:hover{background:var(--color-surface-offset);color:var(--color-text)}
+.icon-btn svg{width:18px;height:18px}
+.dot-alert{position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--color-error);border:2px solid var(--color-surface)}
+.search-box{display:flex;align-items:center;gap:.5rem;background:var(--color-surface-offset);border-radius:var(--radius-md);padding:.5rem .8rem;font-size:.82rem;color:var(--color-text-faint);width:220px}
+.search-box svg{width:15px;height:15px}
+.search-box kbd{margin-left:auto;font-size:.68rem;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:.05rem .3rem;font-family:var(--font-mono)}
+
+.main{grid-column:2;overflow-y:auto;overscroll-behavior:contain;padding:1.5rem}
+.main-inner{max-width:1200px;margin:0 auto}
+
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem}
+.kpi-card{background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-lg);padding:1.1rem;box-shadow:var(--shadow-sm)}
+.kpi-card .kpi-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.6rem}
+.kpi-card .kpi-label{font-size:.78rem;color:var(--color-text-muted);font-weight:500}
+.kpi-card .kpi-icon{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary-highlight);color:var(--color-primary);display:flex;align-items:center;justify-content:center}
+.kpi-card .kpi-icon svg{width:15px;height:15px}
+.kpi-card .kpi-value{font-family:var(--font-mono);font-size:1.55rem;font-weight:600;margin-bottom:.3rem}
+.kpi-delta{font-size:.75rem;font-weight:600;display:flex;align-items:center;gap:.25rem}
+.kpi-delta svg{width:12px;height:12px}
+.kpi-delta.up{color:var(--color-error)}
+.kpi-delta.down{color:var(--color-success)}
+
+.grid-2{display:grid;grid-template-columns:2fr 1fr;gap:1rem;margin-bottom:1.5rem}
+@media(max-width:900px){.grid-2{grid-template-columns:1fr}}
+.card{background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-lg);padding:1.2rem;box-shadow:var(--shadow-sm)}
+.card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+.card-head h2{font-size:1rem;font-weight:700}
+.card-head .tag{font-size:.72rem;color:var(--color-text-faint)}
+.chart-wrap{height:220px}
+
+.risk-list{display:flex;flex-direction:column;gap:.7rem}
+.risk-item{display:flex;align-items:center;gap:.7rem;padding:.5rem;border-radius:var(--radius-md)}
+.risk-item:hover{background:var(--color-surface-offset)}
+.risk-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.risk-dot.crit{background:var(--color-error)}
+.risk-dot.warn{background:var(--color-warning)}
+.risk-item .txt{flex:1;font-size:.82rem}
+.risk-item .txt b{display:block;font-size:.82rem}
+.risk-item .txt span{color:var(--color-text-faint);font-size:.72rem}
+.risk-item .amt{font-family:var(--font-mono);font-size:.82rem;font-weight:600}
+
+.table-card{background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden}
+.table-toolbar{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid var(--color-divider);flex-wrap:wrap;gap:.7rem}
+.filter-chip{display:flex;align-items:center;gap:.4rem;font-size:.8rem;padding:.4rem .75rem;border-radius:var(--radius-full);border:1px solid var(--color-border);background:var(--color-surface-2);color:var(--color-text-muted)}
+.filter-chip.active{border-color:var(--color-primary);color:var(--color-primary);background:var(--color-primary-highlight)}
+.filter-row{display:flex;gap:.5rem;flex-wrap:wrap}
+.export-btn{display:flex;align-items:center;gap:.4rem;font-size:.8rem;font-weight:500;padding:.5rem .9rem;border-radius:var(--radius-md);border:1px solid var(--color-border)}
+.export-btn:hover{background:var(--color-surface-offset)}
+table{width:100%;border-collapse:collapse}
+thead{position:sticky;top:0;background:var(--color-surface-2);z-index:1}
+th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--color-text-faint);padding:.7rem 1.1rem;font-weight:600;border-bottom:1px solid var(--color-divider)}
+td{padding:.75rem 1.1rem;font-size:.83rem;border-bottom:1px solid var(--color-divider)}
+tbody tr:hover{background:var(--color-surface-offset)}
+tbody tr:last-child td{border-bottom:none}
+.claim-id{font-family:var(--font-mono);color:var(--color-text-muted)}
+.status-pill{display:inline-flex;align-items:center;gap:.3rem;font-size:.72rem;font-weight:600;padding:.2rem .55rem;border-radius:var(--radius-full)}
+.status-pill.trapped{background:var(--color-error-highlight);color:var(--color-error)}
+.status-pill.escaping{background:var(--color-warning-highlight);color:var(--color-warning)}
+.status-pill.recovered{background:var(--color-success-highlight);color:var(--color-success)}
+.days-left{font-family:var(--font-mono);font-weight:600}
+.days-left.urgent{color:var(--color-error)}
+.row-action{font-size:.78rem;font-weight:600;color:var(--color-primary)}
+.row-action:hover{color:var(--color-primary-hover)}
+
+@media(max-width:768px){
+  .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:30;transform:translateX(-100%);width:230px;box-shadow:var(--shadow-lg)}
+  .sidebar.mobile-open{transform:translateX(0)}
+  .app{grid-template-columns:1fr}
+  .topbar{grid-column:1}
+  .main{grid-column:1}
+  .grid-2{grid-template-columns:1fr}
+  .search-box{display:none}
+  .collapse-btn{display:none}
+  .overlay-scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25;display:none}
+  .overlay-scrim.show{display:block}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN VIEW ============ -->
+<section id="login-view">
+  <button class="theme-toggle-login" data-theme-toggle aria-label="Switch to dark mode">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+
+  <div class="login-visual">
+    <div class="brandmark">
+      <img src="https://uurrjcsvdtprnpfqpver.supabase.co/storage/v1/object/public/openclaw%20claim%20recovery%20project/logo%20(1).png" alt="" width="30" height="30" style="border-radius:6px">
+      <span>Open Claw</span>
+    </div>
+    <div class="pitch">
+      <h2>Find the claims your EHR forgot.</h2>
+      <p>Open Claw continuously diagnoses Epic workqueue logic conflicts and surfaces claims stalled before timely filing expires.</p>
+      <div class="stat-row">
+        <div class="stat"><b class="mono">$4.82M</b><span>Recovered YTD</span></div>
+        <div class="stat"><b class="mono">312</b><span>Claims rescued</span></div>
+        <div class="stat"><b class="mono">99.98%</b><span>Uptime</span></div>
+      </div>
+    </div>
+    <div style="font-size:.75rem;color:var(--color-text-faint)">HIPAA-aligned · SOC 2 Type II · Zero data retention</div>
+  </div>
+
+  <div class="login-panel">
+    <div class="brandmark-mobile">
+      <img src="https://uurrjcsvdtprnpfqpver.supabase.co/storage/v1/object/public/openclaw%20claim%20recovery%20project/logo%20(1).png" alt="" width="26" height="26" style="border-radius:6px">
+      <span>Open Claw</span>
+    </div>
+    <h1>Welcome back</h1>
+    <p class="sub">Sign in to your revenue recovery workspace.</p>
+
+    <form id="login-form" novalidate>
+      <div class="field" id="field-username">
+        <label for="username">Username or email</label>
+        <div class="input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <input type="text" id="username" name="username" autocomplete="username" placeholder="you@hospital.org">
+        </div>
+        <p class="field-error"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Enter your username or email.</p>
+      </div>
+
+      <div class="field" id="field-password">
+        <label for="password">Password</label>
+        <div class="input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <input type="password" id="password" name="password" autocomplete="current-password" placeholder="••••••••" style="padding-right:2.4rem">
+          <button type="button" class="toggle-visibility" aria-label="Show password" id="toggle-pw">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <p class="field-error"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Enter your password.</p>
+      </div>
+
+      <div class="row-between">
+        <label class="remember"><input type="checkbox" id="remember"> Remember me</label>
+        <a href="#" class="forgot">Forgot password?</a>
+      </div>
+
+      <button type="submit" class="btn-primary" id="submit-btn">
+        <span class="spinner"></span>
+        <span class="btn-label">Sign in</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-label"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+    </form>
+
+    <div class="divider-row">or continue with</div>
+    <div class="sso-row">
+      <button class="btn-ghost" type="button"><svg width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.56c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.56-2.77c-.99.66-2.23 1.06-3.72 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A10.99 10.99 0 0 0 12 23z"/></svg> SSO</button>
+      <button class="btn-ghost" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 7l9 6 9-6"/></svg> Email link</button>
+    </div>
+
+    <p class="signup-line">New health system? <a href="#">Request access</a></p>
+    <div class="security-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      256-bit encrypted · BAA-covered infrastructure
+    </div>
+  </div>
+</section>
+
+<!-- ============ DASHBOARD VIEW ============ -->
+<section id="dashboard-view">
+<div class="overlay-scrim" id="scrim"></div>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <button class="collapse-btn" id="collapse-btn" aria-label="Collapse sidebar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <div class="sidebar-head">
+      <img src="https://uurrjcsvdtprnpfqpver.supabase.co/storage/v1/object/public/openclaw%20claim%20recovery%20project/logo%20(1).png" alt="" width="26" height="26" style="border-radius:6px">
+      <span>Open Claw</span>
+    </div>
+    <nav>
+      <div class="nav-section-label">Overview</div>
+      <a class="nav-item active" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span class="nav-label">Dashboard</span></a>
+      <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 2v10l7 3"/></svg><span class="nav-label">Aging analysis</span></a>
+      <div class="nav-section-label">Claims</div>
+      <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3l6 6-9 9H5v-6z"/></svg><span class="nav-label">Trapped claims</span><span class="nav-badge">47</span></a>
+      <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><span class="nav-label">Recovered</span></a>
+      <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span class="nav-label">Rule conflicts</span></a>
+      <div class="nav-section-label">System</div>
+      <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></svg><span class="nav-label">Epic connections</span></a>
+      <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="nav-label">Settings</span></a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="avatar">JM</div>
+      <div class="who"><b>Jordan Marsh</b><span>Yonkers General · RCM</span></div>
+    </div>
+  </aside>
+
+  <header class="topbar">
+    <div style="display:flex;align-items:center;gap:.8rem">
+      <button class="icon-btn" id="mobile-menu-btn" style="display:none" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <h1>Claim recovery dashboard</h1>
+    </div>
+    <div class="topbar-right">
+      <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Search claims<kbd>⌘K</kbd></div>
+      <button class="icon-btn" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span class="dot-alert"></span></button>
+      <button class="icon-btn" data-theme-toggle aria-label="Toggle theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
+      <button class="icon-btn" id="logout-btn" aria-label="Sign out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
+    </div>
+  </header>
+
+  <main class="main">
+    <div class="main-inner">
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-top"><span class="kpi-label">Trapped claims</span><div class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3l6 6-9 9H5v-6z"/></svg></div></div>
+          <div class="kpi-value" id="kpi-trapped">47</div>
+          <div class="kpi-delta up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg>6 new today</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-top"><span class="kpi-label">At-risk revenue</span><div class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div></div>
+          <div class="kpi-value mono" id="kpi-revenue">$1.24M</div>
+          <div class="kpi-delta up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg>3.1% vs last week</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-top"><span class="kpi-label">Avg. days to filing limit</span><div class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div></div>
+          <div class="kpi-value">11<span style="font-size:.9rem;color:var(--color-text-muted)"> days</span></div>
+          <div class="kpi-delta down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>Improved from 14d</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-top"><span class="kpi-label">Recovered this month</span><div class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 4 12 14.01 9 11.01"/></svg></div></div>
+          <div class="kpi-value mono">$486K</div>
+          <div class="kpi-delta down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>18% of at-risk pool</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h2>Trapped claim value over time</h2><span class="tag">Last 30 days</span></div>
+          <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Highest-risk conflicts</h2><span class="tag">By days remaining</span></div>
+          <div class="risk-list">
+            <div class="risk-item"><div class="risk-dot crit"></div><div class="txt"><b>WQ 4471 · Charge Router</b><span>Local edit vs. waterfall deadlock</span></div><div class="amt">$92,140</div></div>
+            <div class="risk-item"><div class="risk-dot crit"></div><div class="txt"><b>WQ 2098 · Follow-up</b><span>No owner assigned, 3 days left</span></div><div class="amt">$61,880</div></div>
+            <div class="risk-item"><div class="risk-dot warn"></div><div class="txt"><b>WQ 3312 · Secondary Ins.</b><span>Duplicate legacy queue</span></div><div class="amt">$44,225</div></div>
+            <div class="risk-item"><div class="risk-dot warn"></div><div class="txt"><b>WQ 1187 · Credit Review</b><span>Rule mismatch, 9 days left</span></div><div class="amt">$38,950</div></div>
+            <div class="risk-item"><div class="risk-dot warn"></div><div class="txt"><b>WQ 5502 · Self-Pay</b><span>Excluded by custom filter</span></div><div class="amt">$27,410</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="filter-row">
+            <button class="filter-chip active">All claims</button>
+            <button class="filter-chip">Trapped</button>
+            <button class="filter-chip">Escaping soon</button>
+            <button class="filter-chip">Recovered</button>
+          </div>
+          <button class="export-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
+          </div>
+        <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Claim ID</th><th>Workqueue</th><th>Payer</th><th>Amount</th><th>Days left</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <tr><td class="claim-id">CLM-88213</td><td>Charge Router Review</td><td>Aetna</td><td class="mono">$14,220</td><td class="days-left urgent">2d</td><td><span class="status-pill trapped">Trapped</span></td><td><a class="row-action" href="#">Diagnose</a></td></tr>
+            <tr><td class="claim-id">CLM-88054</td><td>Follow-up WQ 2098</td><td>UnitedHealth</td><td class="mono">$9,875</td><td class="days-left urgent">3d</td><td><span class="status-pill trapped">Trapped</span></td><td><a class="row-action" href="#">Diagnose</a></td></tr>
+            <tr><td class="claim-id">CLM-87990</td><td>Secondary Ins. WQ</td><td>Cigna</td><td class="mono">$6,410</td><td class="days-left">9d</td><td><span class="status-pill escaping">Escaping soon</span></td><td><a class="row-action" href="#">Diagnose</a></td></tr>
+            <tr><td class="claim-id">CLM-87711</td><td>Credit Review WQ</td><td>Humana</td><td class="mono">$5,120</td><td class="days-left">14d</td><td><span class="status-pill escaping">Escaping soon</span></td><td><a class="row-action" href="#">Diagnose</a></td></tr>
+            <tr><td class="claim-id">CLM-87422</td><td>Self-Pay WQ</td><td>BCBS</td><td class="mono">$2,980</td><td class="days-left">—</td><td><span class="status-pill recovered">Recovered</span></td><td><a class="row-action" href="#">View</a></td></tr>
+            <tr><td class="claim-id">CLM-87310</td><td>Charge Review WQ</td><td>Aetna</td><td class="mono">$11,660</td><td class="days-left">—</td><td><span class="status-pill recovered">Recovered</span></td><td><a class="row-action" href="#">View</a></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+lucide.createIcons && lucide.createIcons();
+
+/* Theme toggle (shared across both views) */
+(function(){
+  const root=document.documentElement;
+  let dark=matchMedia('(prefers-color-scheme:dark)').matches;
+  root.setAttribute('data-theme', dark?'dark':'light');
+  function paint(){
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn=>{
+      btn.innerHTML = dark
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    });
+  }
+  paint();
+  document.addEventListener('click', e=>{
+    const btn=e.target.closest('[data-theme-toggle]');
+    if(!btn) return;
+    dark=!dark;
+    root.setAttribute('data-theme', dark?'dark':'light');
+    paint();
+  });
+})();
+
+/* Password visibility toggle */
+document.getElementById('toggle-pw').addEventListener('click', function(){
+  const pw=document.getElementById('password');
+  const isText = pw.type === 'text';
+  pw.type = isText ? 'password' : 'text';
+  this.setAttribute('aria-label', isText ? 'Show password' : 'Hide password');
+});
+
+/* Login validation + fake auth -> dashboard */
+const form=document.getElementById('login-form');
+const submitBtn=document.getElementById('submit-btn');
+form.addEventListener('submit', function(e){
+  e.preventDefault();
+  const uField=document.getElementById('field-username');
+  const pField=document.getElementById('field-password');
+  const u=document.getElementById('username').value.trim();
+  const p=document.getElementById('password').value.trim();
+  let valid=true;
+  uField.classList.toggle('has-error', !u); if(!u) valid=false;
+  pField.classList.toggle('has-error', !p); if(!p) valid=false;
+
+  if(!valid){
+    form.closest('.login-panel').classList.add('shake');
+    setTimeout(()=>form.closest('.login-panel').classList.remove('shake'), 500);
+    return;
+  }
+
+  submitBtn.classList.add('loading');
+  submitBtn.disabled=true;
+  // Real auth is enforced by Nginx Basic Auth on /app/ — this form is a
+  // branded front door, not the actual login check.
+  window.location.href = '/app/';
+});
+
+/* Sidebar collapse */
+document.getElementById('collapse-btn').addEventListener('click', function(){
+  document.getElementById('sidebar').classList.toggle('collapsed');
+});
+
+/* Mobile sidebar */
+const sidebar=document.getElementById('sidebar');
+const scrim=document.getElementById('scrim');
+function openMobileNav(){ sidebar.classList.add('mobile-open'); scrim.classList.add('show'); }
+function closeMobileNav(){ sidebar.classList.remove('mobile-open'); scrim.classList.remove('show'); }
+scrim.addEventListener('click', closeMobileNav);
+function checkMobile(){
+  const btn=document.getElementById('mobile-menu-btn');
+  if(window.innerWidth<=768){ btn.style.display='flex'; } else { btn.style.display='none'; closeMobileNav(); }
+}
+window.addEventListener('resize', checkMobile); checkMobile();
+document.getElementById('mobile-menu-btn').addEventListener('click', openMobileNav);
+
+/* Filter chips */
+document.querySelectorAll('.filter-chip').forEach(chip=>{
+  chip.addEventListener('click', function(){
+    document.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+
+/* Chart */
+let chartInstance=null;
+function initChart(){
+  if(chartInstance) return;
+  const ctx=document.getElementById('trend-chart');
+  const isDark=document.documentElement.getAttribute('data-theme')==='dark';
+  const grid = isDark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.06)';
+  const txt = isDark ? '#7f9694' : '#5b6e6e';
+  chartInstance = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels:['Aug 10','Aug 15','Aug 20','Aug 25','Aug 30','Sep 4','Sep 9'],
+      datasets:[{
+        label:'Trapped claim value',
+        data:[1560000,1490000,1610000,1720000,1380000,1290000,1240000],
+        borderColor:'#0b6e6a',
+        backgroundColor:'color-mix(in oklch, #0b6e6a 12%, transparent)',
+        fill:true, tension:.35, pointRadius:0, borderWidth:2
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{grid:{display:false}, ticks:{color:txt, font:{size:11}}},
+        y:{grid:{color:grid}, ticks:{color:txt, font:{size:11}, callback:v=>'$'+(v/1000000).toFixed(1)+'M'}}
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
