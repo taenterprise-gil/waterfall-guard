@@ -34,6 +34,31 @@ def get_supabase_client():
         return None
 
 
+def _authenticate_from_query_params(client) -> None:
+    """Verify a Supabase session handed off from the landing page's login
+    redirect (?access_token=...&refresh_token=...).
+
+    Uses auth.get_user(jwt), a stateless per-call check, rather than
+    set_session — the Supabase client here is a single @st.cache_resource
+    instance shared by every visitor, so mutating its session would leak
+    one user's session into another user's request.
+    """
+    if st.session_state.get("authenticated"):
+        return
+    token = st.query_params.get("access_token")
+    if not token or client is None:
+        return
+    try:
+        result = client.auth.get_user(token)
+    except Exception:
+        result = None
+    if result and result.user:
+        st.session_state["authenticated"] = True
+        st.session_state["user_email"] = result.user.email
+        st.query_params.clear()
+        st.rerun()
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_claims_data(_client, row_limit: int = 5000) -> pd.DataFrame:
     if _client is None:
@@ -75,6 +100,30 @@ def get_filing_deadline_alert_days() -> int:
 
 
 client = get_supabase_client()
+_authenticate_from_query_params(client)
+
+if not st.session_state.get("authenticated"):
+    st.markdown(
+        """
+        <div style="display:flex;flex-direction:column;align-items:center;
+                    justify-content:center;height:70vh;gap:1rem;text-align:center;
+                    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+          <p style="font-size:1rem;color:#5b6e6e;">Sign in required to view the Open Claw dashboard.</p>
+          <a href="/" style="padding:.6rem 1.4rem;border-radius:.5rem;background:#0b6e6a;
+                              color:#fff;text-decoration:none;font-weight:600;">Go to sign in</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
+with st.sidebar:
+    st.caption(f"Signed in as {st.session_state.get('user_email', '')}")
+    if st.button("Sign out"):
+        st.session_state.pop("authenticated", None)
+        st.session_state.pop("user_email", None)
+        st.rerun()
+
 df = fetch_claims_data(client)
 is_live = client is not None and not df.empty
 

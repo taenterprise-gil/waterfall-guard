@@ -450,8 +450,14 @@ tbody tr:last-child td{border-bottom:none}
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 lucide.createIcons && lucide.createIcons();
+
+const supabaseClient = supabase.createClient(
+  'https://uurrjcsvdtprnpfqpver.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1cnJqY3N2ZHRwcm5wZnFwdmVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxMDMxNTgsImV4cCI6MjA4MzY3OTE1OH0.Se17IyolXLllxfGJPZQ3KgSjHC5AFziX3Hnjsl_PdTw'
+);
 
 /* Theme toggle (shared across both views) */
 (function(){
@@ -475,9 +481,8 @@ lucide.createIcons && lucide.createIcons();
   });
 })();
 
-/* Not-yet-available auth options — no SSO provider or per-user accounts
-   exist yet (access is a single shared Nginx Basic Auth credential), so
-   these are honest placeholders rather than fake flows. */
+/* Not-yet-available auth options — only email/password sign-in is wired
+   to Supabase Auth so far; these remain honest placeholders. */
 function showAuthNotice(message){
   const notice=document.getElementById('auth-notice');
   notice.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' + message;
@@ -506,10 +511,10 @@ document.getElementById('toggle-pw').addEventListener('click', function(){
   this.setAttribute('aria-label', isText ? 'Show password' : 'Hide password');
 });
 
-/* Login validation + fake auth -> dashboard */
+/* Login validation -> Supabase Auth -> redirect to /app/ with session tokens */
 const form=document.getElementById('login-form');
 const submitBtn=document.getElementById('submit-btn');
-form.addEventListener('submit', function(e){
+form.addEventListener('submit', async function(e){
   e.preventDefault();
   const uField=document.getElementById('field-username');
   const pField=document.getElementById('field-password');
@@ -527,9 +532,28 @@ form.addEventListener('submit', function(e){
 
   submitBtn.classList.add('loading');
   submitBtn.disabled=true;
-  // Real auth is enforced by Nginx Basic Auth on /app/ — this form is a
-  // branded front door, not the actual login check.
-  window.location.href = '/app/';
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email: u,
+    password: p,
+  });
+
+  if(error || !data.session){
+    submitBtn.classList.remove('loading');
+    submitBtn.disabled=false;
+    showAuthNotice(error ? error.message : 'Sign-in failed. Please try again.');
+    form.closest('.login-panel').classList.add('shake');
+    setTimeout(()=>form.closest('.login-panel').classList.remove('shake'), 500);
+    return;
+  }
+
+  // Hand the session off to the Streamlit dashboard via URL params — it
+  // verifies the access token server-side and clears the URL on load.
+  const params = new URLSearchParams({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+  });
+  window.location.href = '/app/?' + params.toString();
 });
 
 /* Sidebar collapse */
