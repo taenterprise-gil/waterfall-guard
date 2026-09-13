@@ -917,12 +917,32 @@ display_cols = [c for c in ["token_id", "waterfall_stage", "deadlock_types", "ac
 sort_col = st.selectbox("Sort by", display_cols, index=display_cols.index("financial_impact") if "financial_impact" in display_cols else 0)
 sort_desc = st.checkbox("Descending", value=True)
 
-table_df = df[display_cols].sort_values(sort_col, ascending=not sort_desc).reset_index(drop=True)
+# Sorted full-column frame — kept alongside the display-only slice so a row
+# selection (a position in table_df) can look up fields not shown in the
+# table (eligible_wq_ids, filing_deadline, etc.) via the same positional index.
+detail_df = df.sort_values(sort_col, ascending=not sort_desc).reset_index(drop=True)
+table_df = detail_df[display_cols]
 
-st.dataframe(
+# Deadlock type -> suggested remediation. Maps the free-text deadlock label
+# populated at ingestion (see generate_demo_data / claim_diagnostics writer)
+# to an actionable next step for the workqueue owner.
+FIX_PATH_MAP = {
+    "Missing Prior Auth": "Route to Auth team for retroactive prior-authorization request.",
+    "Timely Filing Lapse": "File a timely-filing exception appeal with proof of original submission date.",
+    "Duplicate Claim Hold": "Verify the original claim's status, then void this duplicate or merge it in Epic.",
+    "Coordination of Benefits": "Confirm COB order with patient/payer and resubmit under the correct primary payer.",
+    "Coding Mismatch": "Return to coding for CPT/ICD-10 reconciliation against clinical documentation.",
+    "Payer System Timeout": "Retry payer submission; escalate to payer EDI support if the timeout recurs.",
+    "Manual Review Queue": "Assign to a manual review specialist and monitor SLA for queue aging.",
+    "Credentialing Gap": "Verify provider credentialing status with the payer and resubmit once active.",
+}
+
+selection = st.dataframe(
     table_df,
     use_container_width=True,
     height=420,
+    on_select="rerun",
+    selection_mode="single-row",
     column_config={
         "financial_impact": st.column_config.NumberColumn("Financial Impact", format="$%.2f"),
         "token_id": st.column_config.TextColumn("Token ID"),
@@ -931,6 +951,58 @@ st.dataframe(
         "active_hold_names": st.column_config.TextColumn("Active Hold"),
     },
 )
+
+selected_rows = selection.selection.rows if selection is not None else []
+if selected_rows:
+    claim = detail_df.iloc[selected_rows[0]]
+    token_id = claim.get("token_id", "—")
+
+    # Real Epic/patient identifiers never land in this de-identified table
+    # (see load_data's compliance note above) — the encounter reference
+    # shown here is a mock, deterministically derived from token_id purely
+    # so the detail panel has something stable to display per claim.
+    encounter_ref = f"ENC-{abs(hash(token_id)) % 900000 + 100000}"
+
+    deadlock_reason = claim.get("deadlock_types")
+    if pd.isna(deadlock_reason) or not deadlock_reason:
+        deadlock_reason = "No active deadlock"
+    fix_path = FIX_PATH_MAP.get(deadlock_reason, "No automated recommendation — route to manual review.")
+
+    holds = claim.get("active_hold_names")
+    holds = [h.strip() for h in holds.split(",") if h.strip()] if isinstance(holds, str) else _as_list(holds)
+    eligible_wq = _as_list(claim.get("eligible_wq_ids"))
+    unassigned_wq = _as_list(claim.get("unassigned_wq_ids"))
+    assigned_wq = [wq for wq in eligible_wq if wq not in unassigned_wq]
+
+    with st.expander(f"Claim Detail — {token_id}", expanded=True):
+        id_col, hold_col = st.columns(2)
+        with id_col:
+            st.markdown("**Full Token ID**")
+            st.code(token_id, language=None)
+            st.markdown("**Patient Encounter Reference** (de-identified mock)")
+            st.code(encounter_ref, language=None)
+        with hold_col:
+            st.markdown("**Active Hold(s)**")
+            st.write(", ".join(holds) if holds else "None")
+            st.markdown("**Assigned Workqueue**")
+            st.write(", ".join(assigned_wq) if assigned_wq else "Unassigned")
+            if unassigned_wq:
+                st.caption(f"⚠ Unowned queue(s) pending assignment: {', '.join(unassigned_wq)}")
+
+        st.markdown("**Specific Deadlock Reason**")
+        st.write(deadlock_reason)
+        st.markdown("**Recommended Fix Path**")
+        st.info(fix_path)
+
+        action_col1, action_col2, _ = st.columns([1, 1, 2])
+        with action_col1:
+            if st.button("🚨 Escalate Claim", key=f"escalate_{token_id}"):
+                st.success(f"Claim {token_id} escalated to the supervisor workqueue (mock action).")
+        with action_col2:
+            if st.button("✅ Clear Hold", key=f"clear_hold_{token_id}", disabled=not holds):
+                st.success(f"Hold(s) cleared for claim {token_id} (mock action).")
+else:
+    st.caption("Select a row in the table above to view claim detail.")
 
 csv_bytes = table_df.to_csv(index=False).encode("utf-8")
 st.download_button(
