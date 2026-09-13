@@ -94,6 +94,14 @@ a{color:inherit;text-decoration:none}
 .field-error{margin-top:.4rem;font-size:.78rem;color:var(--color-error);display:none;align-items:center;gap:.3rem}
 .field.has-error input{border-color:var(--color-error)}
 .field.has-error .field-error{display:flex}
+.auth-notice{
+  display:none; align-items:center; gap:.5rem; font-size:.82rem;
+  background:var(--color-warning-highlight); color:var(--color-warning);
+  border:1px solid var(--color-warning); border-radius:var(--radius-md);
+  padding:.65rem .85rem; margin-bottom:1.1rem;
+}
+.auth-notice.show{display:flex}
+.auth-notice svg{width:15px;height:15px;flex-shrink:0}
 .row-between{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.4rem;font-size:.85rem}
 .remember{display:flex;align-items:center;gap:.5rem;color:var(--color-text-muted)}
 .remember input{width:16px;height:16px;accent-color:var(--color-primary)}
@@ -276,6 +284,8 @@ tbody tr:last-child td{border-bottom:none}
     <h1>Welcome back</h1>
     <p class="sub">Sign in to your revenue recovery workspace.</p>
 
+    <div class="auth-notice" id="auth-notice" role="status"></div>
+
     <form id="login-form" novalidate>
       <div class="field" id="field-username">
         <label for="username">Username or email</label>
@@ -300,7 +310,7 @@ tbody tr:last-child td{border-bottom:none}
 
       <div class="row-between">
         <label class="remember"><input type="checkbox" id="remember"> Remember me</label>
-        <a href="#" class="forgot">Forgot password?</a>
+        <a href="#" class="forgot" id="forgot-link">Forgot password?</a>
       </div>
 
       <button type="submit" class="btn-primary" id="submit-btn">
@@ -312,7 +322,7 @@ tbody tr:last-child td{border-bottom:none}
 
     <div class="divider-row">or continue with</div>
     <div class="sso-row">
-      <button class="btn-ghost" type="button"><svg width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.56c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.56-2.77c-.99.66-2.23 1.06-3.72 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A10.99 10.99 0 0 0 12 23z"/></svg> SSO</button>
+      <button class="btn-ghost" type="button" id="sso-btn"><svg width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.56c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.56-2.77c-.99.66-2.23 1.06-3.72 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A10.99 10.99 0 0 0 12 23z"/></svg> SSO</button>
       <button class="btn-ghost" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 7l9 6 9-6"/></svg> Email link</button>
     </div>
 
@@ -463,6 +473,22 @@ lucide.createIcons && lucide.createIcons();
     paint();
   });
 })();
+
+/* Not-yet-available auth options — no SSO provider or per-user accounts
+   exist yet (access is a single shared Nginx Basic Auth credential), so
+   these are honest placeholders rather than fake flows. */
+function showAuthNotice(message){
+  const notice=document.getElementById('auth-notice');
+  notice.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' + message;
+  notice.classList.add('show');
+}
+document.getElementById('forgot-link').addEventListener('click', function(e){
+  e.preventDefault();
+  showAuthNotice('Contact your administrator to reset access.');
+});
+document.getElementById('sso-btn').addEventListener('click', function(){
+  showAuthNotice('SSO is not yet available — contact your administrator.');
+});
 
 /* Password visibility toggle */
 document.getElementById('toggle-pw').addEventListener('click', function(){
