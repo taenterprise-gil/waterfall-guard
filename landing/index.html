@@ -56,17 +56,18 @@ a{color:inherit;text-decoration:none}
   min-height:100dvh; display:grid; grid-template-columns:1fr; place-items:center;
   padding:1.5rem; position:relative; overflow:hidden;
 }
-@media(min-width:900px){ #login-view{grid-template-columns:1.1fr 1fr} }
+@media(min-width:768px){ #login-view{grid-template-columns:45% 55%} }
 .login-visual{
   display:none; position:relative; height:100%; background:
     radial-gradient(circle at 20% 20%, color-mix(in oklch, var(--color-primary) 22%, var(--color-bg)) 0%, transparent 55%),
     radial-gradient(circle at 80% 75%, color-mix(in oklch, var(--color-primary) 14%, var(--color-bg)) 0%, transparent 50%),
     var(--color-surface-offset);
-  padding:3rem; flex-direction:column; justify-content:space-between;
+  padding:4rem 3rem; flex-direction:column; justify-content:space-between;
 }
-@media(min-width:900px){ .login-visual{display:flex} }
+@media(min-width:768px){ .login-visual{display:flex} }
 .login-visual .brandmark{display:flex;align-items:center;gap:.6rem}
-.login-visual .brandmark span{font-family:var(--font-display);font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
+.login-visual .brandmark img{box-shadow:var(--shadow-sm)}
+.login-visual .brandmark span{font-family:var(--font-display);font-weight:700;font-size:1.05rem;letter-spacing:-.01em;color:var(--color-text)}
 .login-visual .pitch{max-width:32ch}
 .login-visual .pitch h2{font-family:var(--font-display);font-weight:700;font-size:clamp(1.4rem,2vw,1.9rem);line-height:1.2;margin-bottom:.75rem}
 .login-visual .pitch p{color:var(--color-text-muted);font-size:.95rem}
@@ -74,9 +75,9 @@ a{color:inherit;text-decoration:none}
 .login-visual .stat b{display:block;font-family:var(--font-mono);font-size:1.5rem;color:var(--color-primary)}
 .login-visual .stat span{font-size:.75rem;color:var(--color-text-muted)}
 
-.login-panel{width:100%;max-width:400px;padding:1rem}
+.login-panel{width:100%;max-width:480px;padding:1rem;margin:0 auto}
 .login-panel .brandmark-mobile{display:flex;align-items:center;gap:.5rem;margin-bottom:2rem}
-@media(min-width:900px){ .login-panel .brandmark-mobile{display:none} }
+@media(min-width:768px){ .login-panel .brandmark-mobile{display:none} }
 .login-panel .brandmark-mobile span{font-family:var(--font-display);font-weight:700;font-size:1rem}
 .login-panel h1{font-family:var(--font-display);font-weight:700;font-size:1.5rem;margin-bottom:.35rem}
 .login-panel .sub{color:var(--color-text-muted);font-size:.9rem;margin-bottom:1.75rem}
