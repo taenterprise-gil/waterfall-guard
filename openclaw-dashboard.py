@@ -1,3 +1,8 @@
+import html
+import os
+from datetime import datetime, timezone
+
+import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -6,68 +11,156 @@ LOGO_URL = (
     "openclaw%20claim%20recovery%20project/logo%20(1).png"
 )
 
-# Illustrative placeholder data — mirrors the real `claim_diagnostics` schema
-# (token_id / deadlock_types / active_hold_names / financial_impact /
-# filing_deadline) from waterfall_guard/engine.py, not a live query.
-CLAIM_ROWS = [
-    {
-        "token_id": "TKN-7F2A91",
-        "deadlock_types": "No Exit Condition",
-        "active_holds": "Coding Review",
-        "payer": "Aetna",
-        "financial_impact": 18420.00,
-        "filing_deadline": "2026-09-18",
-    },
-    {
-        "token_id": "TKN-3C88D4",
-        "deadlock_types": "Ambiguous WQ Routing",
-        "active_holds": "Medical Records",
-        "payer": "UnitedHealth",
-        "financial_impact": 9260.50,
-        "filing_deadline": "2026-09-20",
-    },
-    {
-        "token_id": "TKN-9B1E67",
-        "deadlock_types": "No Escalation Owner",
-        "active_holds": "Auth Pending",
-        "payer": "Cigna",
-        "financial_impact": 27110.75,
-        "filing_deadline": "2026-09-15",
-    },
-    {
-        "token_id": "TKN-5A44F0",
-        "deadlock_types": "No Exit Condition, No Escalation Owner",
-        "active_holds": "Coding Review, Auth Pending",
-        "payer": "Medicaid",
-        "financial_impact": 5340.10,
-        "filing_deadline": "2026-10-02",
-    },
-    {
-        "token_id": "TKN-1D77C2",
-        "deadlock_types": "Ambiguous WQ Routing",
-        "active_holds": "Medical Records",
-        "payer": "Humana",
-        "financial_impact": 14875.25,
-        "filing_deadline": "2026-09-22",
-    },
-]
+TABLE_NAME = "claim_diagnostics"
+MAX_TABLE_ROWS = 25
 
-TOTAL_CLAIMS = 128
-TOTAL_IMPACT = sum(row["financial_impact"] for row in CLAIM_ROWS) * (TOTAL_CLAIMS / len(CLAIM_ROWS))
-TIMELY_FILING_ALERTS = 6
-CLAIM_COLLISIONS = 3
 
-TABLE_ROWS_HTML = "\n".join(
-    f"""
+def _secret(name: str, default: str = "") -> str:
+    return st.secrets.get(name, os.environ.get(name, default))
+
+
+@st.cache_resource(show_spinner=False)
+def get_supabase_client():
+    """Read-only Supabase client (anon key), same pattern as app.py."""
+    try:
+        from supabase import create_client
+
+        url = _secret("SUPABASE_URL")
+        key = _secret("SUPABASE_KEY")
+        if not url or not key:
+            return None
+        return create_client(url, key)
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_claims_data(_client, row_limit: int = 5000) -> pd.DataFrame:
+    if _client is None:
+        return pd.DataFrame()
+    try:
+        response = (
+            _client.table(TABLE_NAME)
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(row_limit)
+            .execute()
+        )
+        df = pd.DataFrame(response.data)
+        if not df.empty and "financial_impact" in df.columns:
+            df["financial_impact"] = pd.to_numeric(df["financial_impact"], errors="coerce").fillna(0.0)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def _as_list(value) -> list:
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    try:
+        if pd.isna(value):
+            return []
+    except (TypeError, ValueError):
+        pass
+    return [value]
+
+
+def get_filing_deadline_alert_days() -> int:
+    try:
+        return int(_secret("FILING_DEADLINE_ALERT_DAYS", "7"))
+    except (TypeError, ValueError):
+        return 7
+
+
+client = get_supabase_client()
+df = fetch_claims_data(client)
+is_live = client is not None and not df.empty
+
+# --- Stats -------------------------------------------------------------
+total_claims = len(df)
+total_impact = float(df["financial_impact"].sum()) if "financial_impact" in df.columns else 0.0
+
+active_edit_counts = (
+    df["active_hold_names"].apply(lambda v: len(_as_list(v))) if "active_hold_names" in df.columns else pd.Series(dtype=int)
+)
+unassigned_counts = (
+    df["unassigned_wq_ids"].apply(lambda v: len(_as_list(v))) if "unassigned_wq_ids" in df.columns else pd.Series(dtype=int)
+)
+if not df.empty and "active_hold_names" in df.columns and "unassigned_wq_ids" in df.columns:
+    collisions_df = df[(active_edit_counts >= 2) & (unassigned_counts > 0)]
+else:
+    collisions_df = df.iloc[0:0]
+
+filing_alert_days = get_filing_deadline_alert_days()
+if not df.empty and "filing_deadline" in df.columns:
+    filing_deadline_ts = pd.to_datetime(df["filing_deadline"], errors="coerce", utc=True)
+    days_until = (filing_deadline_ts - pd.Timestamp.now(tz="UTC")).dt.total_seconds() / 86400
+    filing_mask = filing_deadline_ts.notna() & (days_until <= filing_alert_days)
+    filing_alerts_df = df[filing_mask]
+else:
+    filing_alerts_df = df.iloc[0:0]
+
+claim_collisions = len(collisions_df)
+timely_filing_alerts = len(filing_alerts_df)
+
+# --- Table rows ----------------------------------------------------------
+def _format_deadline(value) -> str:
+    if value is None:
+        return "—"
+    try:
+        if pd.isna(value):
+            return "—"
+    except (TypeError, ValueError):
+        pass
+    ts = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(ts):
+        return "—"
+    return ts.strftime("%Y-%m-%d")
+
+
+table_df = df.sort_values("financial_impact", ascending=False) if "financial_impact" in df.columns else df
+table_df = table_df.head(MAX_TABLE_ROWS)
+
+row_html_parts = []
+for _, row in table_df.iterrows():
+    token_id = html.escape(str(row.get("token_id", "—")))
+    deadlock_types = html.escape(", ".join(_as_list(row.get("deadlock_types"))) or "—")
+    active_holds = html.escape(", ".join(_as_list(row.get("active_hold_names"))) or "—")
+    waterfall_stage = html.escape(str(row.get("waterfall_stage", "—")))
+    financial_impact = float(row.get("financial_impact", 0.0) or 0.0)
+    filing_deadline = _format_deadline(row.get("filing_deadline"))
+    row_html_parts.append(
+        f"""
     <tr>
-      <td class="mono">{row['token_id']}</td>
-      <td>{row['deadlock_types']}</td>
-      <td>{row['active_holds']}</td>
-      <td>{row['payer']}</td>
-      <td class="mono num">${row['financial_impact']:,.2f}</td>
-      <td class="mono">{row['filing_deadline']}</td>
+      <td class="mono">{token_id}</td>
+      <td>{waterfall_stage}</td>
+      <td>{deadlock_types}</td>
+      <td>{active_holds}</td>
+      <td class="mono num">${financial_impact:,.2f}</td>
+      <td class="mono">{filing_deadline}</td>
     </tr>"""
-    for row in CLAIM_ROWS
+    )
+
+if row_html_parts:
+    TABLE_ROWS_HTML = "\n".join(row_html_parts)
+else:
+    TABLE_ROWS_HTML = """
+    <tr><td colspan="6" class="empty">No claim diagnostics rows available.</td></tr>"""
+
+table_note = (
+    f"Showing top {len(table_df)} of {total_claims} claims by financial impact."
+    if total_claims > len(table_df)
+    else f"Showing all {total_claims} claim(s)."
+)
+
+status_label = "LIVE" if is_live else "NO DATA"
+status_class = "live" if is_live else "offline"
+status_note = (
+    "Connected to Supabase claim_diagnostics."
+    if is_live
+    else "No live rows found — check SUPABASE_URL / SUPABASE_KEY secrets and that claim_diagnostics has data."
 )
 
 HTML_CONTENT = f"""
@@ -85,6 +178,7 @@ HTML_CONTENT = f"""
     --color-primary: #01696f;
     --color-warning: #964219;
     --color-error: #a12c7b;
+    --color-success: #437a22;
   }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -96,10 +190,16 @@ HTML_CONTENT = f"""
   .header {{
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 16px;
     padding: 20px 24px;
     background: #1e293b;
     border-bottom: 1px solid #334155;
+  }}
+  .header-left {{
+    display: flex;
+    align-items: center;
+    gap: 16px;
   }}
   .header img {{
     height: 48px;
@@ -114,6 +214,22 @@ HTML_CONTENT = f"""
     margin: 2px 0 0;
     font-size: 13px;
     color: #94a3b8;
+  }}
+  .status-pill {{
+    display: inline-block;
+    padding: 3px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }}
+  .status-pill.live {{
+    background: rgba(67, 122, 34, 0.18);
+    color: #6fbf3f;
+  }}
+  .status-pill.offline {{
+    background: rgba(150, 66, 25, 0.18);
+    color: #d98b52;
   }}
   .content {{
     padding: 24px;
@@ -161,6 +277,11 @@ HTML_CONTENT = f"""
     border: 1px solid rgba(161, 44, 123, 0.3);
     color: var(--color-error);
   }}
+  .alert.success {{
+    background: rgba(67, 122, 34, 0.08);
+    border: 1px solid rgba(67, 122, 34, 0.3);
+    color: var(--color-success);
+  }}
   h2 {{
     font-size: 16px;
     margin: 28px 0 12px;
@@ -190,6 +311,11 @@ HTML_CONTENT = f"""
   tr:last-child td {{
     border-bottom: none;
   }}
+  td.empty {{
+    text-align: center;
+    color: var(--color-text-muted);
+    padding: 24px;
+  }}
   .mono {{
     font-family: "JetBrains Mono", ui-monospace, monospace;
   }}
@@ -206,37 +332,44 @@ HTML_CONTENT = f"""
 </head>
 <body>
   <div class="header">
-    <img src="{LOGO_URL}" alt="OpenClaw logo" />
-    <div>
-      <h1>OpenClaw Dashboard</h1>
-      <p>Healthcare Revenue Recovery Analytics</p>
+    <div class="header-left">
+      <img src="{LOGO_URL}" alt="OpenClaw logo" />
+      <div>
+        <h1>OpenClaw Dashboard</h1>
+        <p>Healthcare Revenue Recovery Analytics</p>
+      </div>
     </div>
+    <span class="status-pill {status_class}">{status_label}</span>
   </div>
   <div class="content">
     <div class="stat-grid">
       <div class="stat-card">
         <div class="label">Total Claims Tracked</div>
-        <div class="value">{TOTAL_CLAIMS}</div>
+        <div class="value">{total_claims}</div>
       </div>
       <div class="stat-card">
         <div class="label">Total Financial Impact</div>
-        <div class="value">${TOTAL_IMPACT:,.0f}</div>
+        <div class="value">${total_impact:,.0f}</div>
       </div>
       <div class="stat-card">
-        <div class="label">Timely Filing Alerts (est.)</div>
-        <div class="value">{TIMELY_FILING_ALERTS}</div>
+        <div class="label">Timely Filing Alerts</div>
+        <div class="value">{timely_filing_alerts}</div>
       </div>
       <div class="stat-card">
         <div class="label">Claim Collisions</div>
-        <div class="value">{CLAIM_COLLISIONS}</div>
+        <div class="value">{claim_collisions}</div>
       </div>
     </div>
 
+    <div class="alert {'success' if is_live else 'warning'}">
+      {'&#9989;' if is_live else '&#9888;'} {status_note}
+    </div>
+
     <div class="alert warning">
-      &#9888; {TIMELY_FILING_ALERTS} claims fall within the timely-filing window (estimate).
+      &#9888; {timely_filing_alerts} claim(s) due within {filing_alert_days} day(s) of their filing deadline (or past it).
     </div>
     <div class="alert error">
-      &#9888; {CLAIM_COLLISIONS} claim collisions detected across active hold queues.
+      &#9888; {claim_collisions} claim(s) have 2+ active edits routing to an unassigned holding queue.
     </div>
 
     <h2>Claim-Level Detail</h2>
@@ -244,9 +377,9 @@ HTML_CONTENT = f"""
       <thead>
         <tr>
           <th>Token ID</th>
+          <th>Stage</th>
           <th>Deadlock Type(s)</th>
           <th>Active Hold(s)</th>
-          <th>Payer</th>
           <th>Financial Impact</th>
           <th>Filing Deadline</th>
         </tr>
@@ -256,10 +389,7 @@ HTML_CONTENT = f"""
       </tbody>
     </table>
 
-    <p class="footnote">
-      Illustrative data shown above — not wired to live Supabase
-      <code>claim_diagnostics</code> rows yet.
-    </p>
+    <p class="footnote">{table_note}</p>
   </div>
 </body>
 </html>
