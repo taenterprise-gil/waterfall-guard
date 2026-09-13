@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw — Waterfall Diagnostics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Same art direction as openclaw.clawrecover.com's landing page — cool
+   teal/deep-green healthtech palette, single accent — kept in sync so the
+   two OpenClaw front doors feel like one product. */
+
+:root, [data-theme="light"]{
+  --color-bg:#f5f7f7; --color-surface:#ffffff; --color-surface-2:#fbfcfc;
+  --color-surface-offset:#eef1f1;
+  --color-divider:#e0e5e5; --color-border:#d3d9d9;
+  --color-text:#0f2a2b; --color-text-muted:#5b6e6e; --color-text-faint:#9aa8a8; --color-text-inverse:#f5f7f7;
+  --color-primary:#0b6e6a; --color-primary-hover:#08514e; --color-primary-active:#063938; --color-primary-highlight:#cfe4e2;
+  --color-warning:#9a6a10; --color-warning-highlight:#eee0c6;
+  --radius-md:.5rem; --radius-full:9999px;
+  --shadow-sm:0 1px 2px oklch(0.2 0.02 190/.06); --shadow-lg:0 12px 32px oklch(0.2 0.02 190/.14);
+  --font-display:'Satoshi','Inter',sans-serif; --font-body:'Satoshi','Inter',sans-serif; --font-mono:'JetBrains Mono',monospace;
+  --transition-interactive: 180ms cubic-bezier(0.16,1,0.3,1);
+}
+[data-theme="dark"]{
+  --color-bg:#0a1414; --color-surface:#0f1a1a; --color-surface-2:#121f1f;
+  --color-surface-offset:#152323;
+  --color-divider:#1e3030; --color-border:#2a4040;
+  --color-text:#dbe8e7; --color-text-muted:#7f9694; --color-text-faint:#526363; --color-text-inverse:#0f1a1a;
+  --color-primary:#3fb3ac; --color-primary-hover:#5cc5be; --color-primary-active:#7ad4ce; --color-primary-highlight:#1a3634;
+  --color-warning:#d9a63e; --color-warning-highlight:#3a3018;
+  --shadow-sm:0 1px 2px oklch(0 0 0/.3); --shadow-lg:0 12px 32px oklch(0 0 0/.5);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{font-family:var(--font-body);background:var(--color-bg);color:var(--color-text);min-height:100dvh;line-height:1.5;font-size:16px}
+img{display:block;max-width:100%}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:none}
+input{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px;border-radius:.375rem}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums lining-nums}
+
+#login-view{
+  min-height:100dvh; display:grid; grid-template-columns:1fr; place-items:center;
+  padding:1.5rem; position:relative; overflow:hidden;
+}
+@media(min-width:768px){ #login-view{grid-template-columns:45% 55%} }
+.login-visual{
+  display:none; position:relative; height:100%; background:
+    radial-gradient(circle at 20% 20%, color-mix(in oklch, var(--color-primary) 22%, var(--color-bg)) 0%, transparent 55%),
+    radial-gradient(circle at 80% 75%, color-mix(in oklch, var(--color-primary) 14%, var(--color-bg)) 0%, transparent 50%),
+    var(--color-surface-offset);
+  padding:4rem 3rem; flex-direction:column; justify-content:space-between;
+}
+@media(min-width:768px){ .login-visual{display:flex} }
+.login-visual .brandmark{display:flex;align-items:center;gap:.6rem}
+.login-visual .brandmark img{box-shadow:var(--shadow-sm)}
+.login-visual .brandmark span{font-family:var(--font-display);font-weight:700;font-size:1.05rem;letter-spacing:-.01em;color:var(--color-text)}
+.login-visual .pitch{max-width:32ch}
+.login-visual .pitch h2{font-family:var(--font-display);font-weight:700;font-size:clamp(1.4rem,2vw,1.9rem);line-height:1.2;margin-bottom:.75rem}
+.login-visual .pitch p{color:var(--color-text-muted);font-size:.95rem}
+.login-visual .stat-row{display:flex;gap:1.5rem;margin-top:2rem}
+.login-visual .stat b{display:block;font-family:var(--font-mono);font-size:1.5rem;color:var(--color-primary)}
+.login-visual .stat span{font-size:.75rem;color:var(--color-text-muted)}
+
+.login-panel{width:100%;max-width:480px;padding:1rem;margin:0 auto}
+.login-panel .brandmark-mobile{display:flex;align-items:center;gap:.5rem;margin-bottom:2rem}
+@media(min-width:768px){ .login-panel .brandmark-mobile{display:none} }
+.login-panel .brandmark-mobile span{font-family:var(--font-display);font-weight:700;font-size:1rem}
+.login-panel h1{font-family:var(--font-display);font-weight:700;font-size:1.5rem;margin-bottom:.35rem}
+.login-panel .sub{color:var(--color-text-muted);font-size:.9rem;margin-bottom:1.75rem}
+.field{margin-bottom:1.1rem}
+.field label{display:block;font-size:.8rem;font-weight:500;margin-bottom:.4rem;color:var(--color-text-muted)}
+.field .input-wrap{position:relative;display:flex;align-items:center}
+.field .input-wrap svg{position:absolute;left:.75rem;width:16px;height:16px;color:var(--color-text-faint);pointer-events:none}
+.field input{
+  width:100%; padding:.7rem .75rem .7rem 2.35rem; border-radius:var(--radius-md);
+  border:1px solid var(--color-border); background:var(--color-surface); font-size:.9rem;
+  transition:border-color var(--transition-interactive), box-shadow var(--transition-interactive);
+}
+.field input:focus{border-color:var(--color-primary); box-shadow:0 0 0 3px var(--color-primary-highlight); outline:none}
+.field .toggle-visibility{position:absolute;right:.65rem;background:none;border:none;color:var(--color-text-faint);display:flex;padding:.25rem}
+.field-error{margin-top:.4rem;font-size:.78rem;color:#a12c2c;display:none;align-items:center;gap:.3rem}
+.field.has-error input{border-color:#a12c2c}
+.field.has-error .field-error{display:flex}
+.auth-notice{
+  display:none; align-items:center; gap:.5rem; font-size:.82rem;
+  background:var(--color-warning-highlight); color:var(--color-warning);
+  border:1px solid var(--color-warning); border-radius:var(--radius-md);
+  padding:.65rem .85rem; margin-bottom:1.1rem;
+}
+.auth-notice.show{display:flex}
+.auth-notice svg{width:15px;height:15px;flex-shrink:0}
+.row-between{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.4rem;font-size:.85rem}
+.remember{display:flex;align-items:center;gap:.5rem;color:var(--color-text-muted)}
+.remember input{width:16px;height:16px;accent-color:var(--color-primary)}
+.forgot{color:var(--color-primary);font-weight:500}
+.forgot:hover{color:var(--color-primary-hover)}
+.btn-primary{
+  width:100%; padding:.75rem; border-radius:var(--radius-md); background:var(--color-primary); color:#fff;
+  font-weight:600; font-size:.92rem; display:flex; align-items:center; justify-content:center; gap:.5rem;
+  transition:background var(--transition-interactive), transform var(--transition-interactive);
+}
+.btn-primary:hover{background:var(--color-primary-hover)}
+.btn-primary:active{transform:scale(.98)}
+.btn-primary:disabled{opacity:.7;cursor:not-allowed}
+.btn-primary .spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none}
+.btn-primary.loading .spinner{display:inline-block}
+.btn-primary.loading .btn-label{opacity:.85}
+@keyframes spin{to{transform:rotate(360deg)}}
+.divider-row{display:flex;align-items:center;gap:.75rem;margin:1.4rem 0;color:var(--color-text-faint);font-size:.78rem}
+.divider-row::before,.divider-row::after{content:'';flex:1;height:1px;background:var(--color-divider)}
+.sso-row{display:flex;gap:.6rem}
+.btn-ghost{
+  flex:1; padding:.65rem; border-radius:var(--radius-md); border:1px solid var(--color-border);
+  background:var(--color-surface); display:flex; align-items:center; justify-content:center; gap:.5rem; font-size:.85rem; font-weight:500;
+}
+.btn-ghost:hover{background:var(--color-surface-offset)}
+.signup-line{margin-top:1.75rem; text-align:center; font-size:.85rem; color:var(--color-text-muted)}
+.signup-line a{color:var(--color-primary); font-weight:600}
+.theme-toggle-login{position:absolute; top:1.5rem; right:1.5rem; z-index:5; width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-full);background:var(--color-surface);border:1px solid var(--color-border)}
+.theme-toggle-login svg{width:16px;height:16px}
+.security-badge{display:flex;align-items:center;gap:.4rem;font-size:.72rem;color:var(--color-text-faint);margin-top:1.5rem;justify-content:center}
+.security-badge svg{width:13px;height:13px}
+
+@keyframes shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}30%,50%,70%{transform:translateX(-4px)}40%,60%{transform:translateX(4px)}}
+.shake{animation:shake .5s}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+
+<section id="login-view">
+  <button class="theme-toggle-login" data-theme-toggle aria-label="Switch to dark mode">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+
+  <div class="login-visual">
+    <div class="brandmark">
+      <img src="https://uurrjcsvdtprnpfqpver.supabase.co/storage/v1/object/public/openclaw%20claim%20recovery%20project/logo%20(1).png" alt="" width="30" height="30" style="border-radius:6px">
+      <span>OpenClaw</span>
+    </div>
+    <div class="pitch">
+      <h2>Waterfall diagnostics, per organization.</h2>
+      <p>Sign in to your organization's Epic workqueue deadlock diagnostics — claim-level detail, active holds, and recommended fix paths.</p>
+    </div>
+    <div style="font-size:.75rem;color:var(--color-text-faint)">HIPAA-aligned · SOC 2 Type II · Zero data retention</div>
+  </div>
+
+  <div class="login-panel">
+    <div class="brandmark-mobile">
+      <img src="https://uurrjcsvdtprnpfqpver.supabase.co/storage/v1/object/public/openclaw%20claim%20recovery%20project/logo%20(1).png" alt="" width="26" height="26" style="border-radius:6px">
+      <span>OpenClaw</span>
+    </div>
+    <h1>Welcome back</h1>
+    <p class="sub">Sign in to your waterfall diagnostics workspace.</p>
+
+    <div class="auth-notice" id="auth-notice" role="status"></div>
+
+    <form id="login-form" novalidate>
+      <div class="field" id="field-username">
+        <label for="username">Username or email</label>
+        <div class="input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <input type="text" id="username" name="username" autocomplete="username" placeholder="you@hospital.org">
+        </div>
+        <p class="field-error"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Enter your username or email.</p>
+      </div>
+
+      <div class="field" id="field-password">
+        <label for="password">Password</label>
+        <div class="input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <input type="password" id="password" name="password" autocomplete="current-password" placeholder="••••••••" style="padding-right:2.4rem">
+          <button type="button" class="toggle-visibility" aria-label="Show password" id="toggle-pw">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <p class="field-error"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Enter your password.</p>
+      </div>
+
+      <div class="row-between">
+        <label class="remember"><input type="checkbox" id="remember"> Remember me</label>
+        <a href="#" class="forgot" id="forgot-link">Forgot password?</a>
+      </div>
+
+      <button type="submit" class="btn-primary" id="submit-btn">
+        <span class="spinner"></span>
+        <span class="btn-label">Sign in</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-label"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+    </form>
+
+    <div class="divider-row">or continue with</div>
+    <div class="sso-row">
+      <button class="btn-ghost" type="button" id="sso-btn"><svg width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.56c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.56-2.77c-.99.66-2.23 1.06-3.72 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A10.99 10.99 0 0 0 12 23z"/></svg> SSO</button>
+      <button class="btn-ghost" type="button" id="email-link-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 7l9 6 9-6"/></svg> Email link</button>
+    </div>
+
+    <p class="signup-line">New organization? <a href="#" id="request-access-link">Request access</a></p>
+    <div class="security-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      256-bit encrypted · BAA-covered infrastructure
+    </div>
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const supabaseClient = supabase.createClient(
+  'https://uurrjcsvdtprnpfqpver.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1cnJqY3N2ZHRwcm5wZnFwdmVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxMDMxNTgsImV4cCI6MjA4MzY3OTE1OH0.Se17IyolXLllxfGJPZQ3KgSjHC5AFziX3Hnjsl_PdTw'
+);
+
+(function(){
+  const root=document.documentElement;
+  let dark=matchMedia('(prefers-color-scheme:dark)').matches;
+  root.setAttribute('data-theme', dark?'dark':'light');
+  function paint(){
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn=>{
+      btn.innerHTML = dark
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    });
+  }
+  paint();
+  document.addEventListener('click', e=>{
+    const btn=e.target.closest('[data-theme-toggle]');
+    if(!btn) return;
+    dark=!dark;
+    root.setAttribute('data-theme', dark?'dark':'light');
+    paint();
+  });
+})();
+
+/* Not-yet-available auth options — only email/password sign-in is wired
+   to Supabase Auth so far; these remain honest placeholders. */
+function showAuthNotice(message){
+  const notice=document.getElementById('auth-notice');
+  notice.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' + message;
+  notice.classList.add('show');
+}
+document.getElementById('forgot-link').addEventListener('click', function(e){
+  e.preventDefault();
+  showAuthNotice('Contact your administrator to reset access.');
+});
+document.getElementById('sso-btn').addEventListener('click', function(){
+  showAuthNotice('SSO is not yet available — contact your administrator.');
+});
+document.getElementById('email-link-btn').addEventListener('click', function(){
+  showAuthNotice('Email-link sign-in is not yet available — contact your administrator.');
+});
+document.getElementById('request-access-link').addEventListener('click', function(e){
+  e.preventDefault();
+  showAuthNotice('New organization onboarding isn\'t self-serve yet — contact us to get started.');
+});
+
+document.getElementById('toggle-pw').addEventListener('click', function(){
+  const pw=document.getElementById('password');
+  const isText = pw.type === 'text';
+  pw.type = isText ? 'password' : 'text';
+  this.setAttribute('aria-label', isText ? 'Show password' : 'Hide password');
+});
+
+/* Login validation -> Supabase Auth -> redirect to /app/ with session tokens */
+const form=document.getElementById('login-form');
+const submitBtn=document.getElementById('submit-btn');
+form.addEventListener('submit', async function(e){
+  e.preventDefault();
+  const uField=document.getElementById('field-username');
+  const pField=document.getElementById('field-password');
+  const u=document.getElementById('username').value.trim();
+  const p=document.getElementById('password').value.trim();
+  let valid=true;
+  uField.classList.toggle('has-error', !u); if(!u) valid=false;
+  pField.classList.toggle('has-error', !p); if(!p) valid=false;
+
+  if(!valid){
+    form.closest('.login-panel').classList.add('shake');
+    setTimeout(()=>form.closest('.login-panel').classList.remove('shake'), 500);
+    return;
+  }
+
+  submitBtn.classList.add('loading');
+  submitBtn.disabled=true;
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email: u,
+    password: p,
+  });
+
+  if(error || !data.session){
+    submitBtn.classList.remove('loading');
+    submitBtn.disabled=false;
+    showAuthNotice(error ? error.message : 'Sign-in failed. Please try again.');
+    form.closest('.login-panel').classList.add('shake');
+    setTimeout(()=>form.closest('.login-panel').classList.remove('shake'), 500);
+    return;
+  }
+
+  const params = new URLSearchParams({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+  });
+  window.location.href = '/app/?' + params.toString();
+});
+</script>
+</body>
+</html>
