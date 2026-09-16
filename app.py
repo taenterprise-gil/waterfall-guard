@@ -602,7 +602,7 @@ def render_alerts(df: pd.DataFrame) -> None:
         )
         with st.expander(f"View {len(collisions_df):,} colliding claim(s)"):
             cols = [c for c in ["token_id", "waterfall_stage", "active_hold_names", "unassigned_wq_ids", "financial_impact"] if c in collisions_df.columns]
-            st.dataframe(collisions_df[cols], use_container_width=True, height=min(360, 60 + 35 * len(collisions_df)))
+            st.dataframe(collisions_df[cols], width='stretch', height=min(360, 60 + 35 * len(collisions_df)))
 
     # Timely Filing always renders, even at zero, so staff can see the alert
     # is live and watching rather than wondering whether it ran at all.
@@ -629,7 +629,7 @@ def render_alerts(df: pd.DataFrame) -> None:
             cols = [c for c in ["token_id", "waterfall_stage", "filing_deadline", "days_until_filing_deadline", "financial_impact"] if c in filing_alerts_df.columns]
             st.dataframe(
                 filing_alerts_df[cols].sort_values("days_until_filing_deadline"),
-                use_container_width=True,
+                width='stretch',
                 height=min(360, 60 + 35 * len(filing_alerts_df)),
             )
 
@@ -654,7 +654,7 @@ with st.sidebar:
     st.markdown("### OpenClaw")
     st.caption("Revenue Recovery Diagnostics")
     st.caption(f"Organization: `{tenant_id}`")
-    if st.button("Switch organization", use_container_width=True):
+    if st.button("Switch organization", width='stretch'):
         st.session_state.pop("tenant_id", None)
         try:
             del st.query_params["tenant_id"]
@@ -662,7 +662,7 @@ with st.sidebar:
             pass
         st.rerun()
     st.caption(f"Signed in as {st.session_state.get('user_email', '')}")
-    if st.button("Sign out", use_container_width=True):
+    if st.button("Sign out", width='stretch'):
         st.session_state.pop("authenticated", None)
         st.session_state.pop("user_email", None)
         st.rerun()
@@ -711,7 +711,7 @@ with st.sidebar:
         only_deadlocked = st.checkbox("Only show deadlocked claims", value=False)
 
         st.markdown("---")
-        if st.button("🔄 Refresh data", use_container_width=True):
+        if st.button("🔄 Refresh data", width='stretch'):
             st.cache_data.clear()
             st.rerun()
 
@@ -804,7 +804,7 @@ with col1:
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Inter, sans-serif", color="#28251d"),
     )
-    st.plotly_chart(fig_funnel, use_container_width=True)
+    st.plotly_chart(fig_funnel, width='stretch')
 
 with col2:
     st.subheader("Financial Impact by Stage")
@@ -834,7 +834,7 @@ with col2:
         yaxis=dict(categoryorder="array", categoryarray=ordered_stages[::-1]),
     )
     fig_impact.update_traces(texttemplate="$%{x:,.0f}", textposition="outside")
-    st.plotly_chart(fig_impact, use_container_width=True)
+    st.plotly_chart(fig_impact, width='stretch')
 
 # ----------------------------------------------------------------------------
 # Row 2 — Deadlock type breakdown + Active hold names
@@ -865,7 +865,7 @@ with col3:
             font=dict(family="Inter, sans-serif", color="#28251d"),
             coloraxis_showscale=False,
         )
-        st.plotly_chart(fig_deadlock, use_container_width=True)
+        st.plotly_chart(fig_deadlock, width='stretch')
 
 with col4:
     st.subheader("Active Hold Names")
@@ -893,7 +893,7 @@ with col4:
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(family="Inter, sans-serif", color="#28251d"),
         )
-        st.plotly_chart(fig_holds, use_container_width=True)
+        st.plotly_chart(fig_holds, width='stretch')
 
 # ----------------------------------------------------------------------------
 # Row 3 — Financial impact distribution + trend over time
@@ -917,7 +917,7 @@ with col5:
         font=dict(family="Inter, sans-serif", color="#28251d"),
         bargap=0.05,
     )
-    st.plotly_chart(fig_hist, use_container_width=True)
+    st.plotly_chart(fig_hist, width='stretch')
 
 with col6:
     if "created_at" in df.columns:
@@ -942,7 +942,7 @@ with col6:
             font=dict(family="Inter, sans-serif", color="#28251d"),
             yaxis_title="Claims per day",
         )
-        st.plotly_chart(fig_trend, use_container_width=True)
+        st.plotly_chart(fig_trend, width='stretch')
     else:
         st.subheader("Payer Breakdown")
         if "payer" in df.columns:
@@ -952,7 +952,7 @@ with col6:
                 color_discrete_sequence=COLOR_SEQUENCE, hole=0.45,
             )
             fig_payer.update_layout(height=360, font=dict(family="Inter, sans-serif"))
-            st.plotly_chart(fig_payer, use_container_width=True)
+            st.plotly_chart(fig_payer, width='stretch')
 
 # ----------------------------------------------------------------------------
 # Row 4 — Detailed claims table
@@ -986,7 +986,7 @@ FIX_PATH_MAP = {
 
 selection = st.dataframe(
     table_df,
-    use_container_width=True,
+    width='stretch',
     height=420,
     on_select="rerun",
     selection_mode="single-row",
